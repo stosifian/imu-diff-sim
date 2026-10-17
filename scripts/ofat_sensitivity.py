@@ -141,6 +141,11 @@ def main() -> int:
     ap.add_argument("--points", type=int, default=9)
     ap.add_argument("--factors", nargs="+", default=list(FACTORS), choices=FACTORS)
     ap.add_argument("--out", type=Path, default=Path("runs/ofat.npz"))
+    ap.add_argument("--min-baseline-survival", type=float, default=0.8,
+                    help="refuse to sweep if the unperturbed policy survives "
+                         "less than this fraction of an episode")
+    ap.add_argument("--force", action="store_true",
+                    help="sweep even if the baseline gate fails")
     args = ap.parse_args()
 
     import functools
@@ -152,6 +157,8 @@ def main() -> int:
 
     patch_device_put_replicated()  # brax network construction may hit it too
 
+    from brax.training import types
+    from brax.training.acme import running_statistics
     from brax.training.agents.ppo import networks as ppo_networks
     from mujoco_playground import registry
 
@@ -182,9 +189,25 @@ def main() -> int:
 
     ppo_params = blob.get("ppo_params", {})
     net_kwargs = dict(ppo_params.get("network_factory", {}) or {})
+
+    # MUST match training. brax PPO trains with normalize_observations=True by
+    # default for this task, which means the saved params are
+    # (normalizer_stats, policy_weights) and the policy expects NORMALIZED
+    # input. Building the network with brax's default identity preprocessor
+    # feeds it raw observations instead -- joint velocities an order of
+    # magnitude outside the range its weights were fitted on. The policy then
+    # falls within a few seconds no matter what, and every sweep row comes
+    # back identical because the perturbation is irrelevant next to the
+    # breakage. That is exactly what the first full sweep produced.
+    normalize = (
+        running_statistics.normalize
+        if ppo_params.get("normalize_observations", True)
+        else types.identity_observation_preprocessor
+    )
     networks = ppo_networks.make_ppo_networks(
         observation_size=env.observation_size,
         action_size=env.action_size,
+        preprocess_observations_fn=normalize,
         **net_kwargs,
     )
     inference_fn = ppo_networks.make_inference_fn(networks)(
@@ -194,6 +217,36 @@ def main() -> int:
     rollout = build_rollout(env, inference_fn,
                             {"horizon": args.horizon, "max_latency": 8})
     batched = jax.jit(jax.vmap(rollout, in_axes=(0, None, None)))
+
+    # BASELINE GATE. Every sweep is measured as a departure from the
+    # unperturbed policy, so if the policy cannot stand on its own the sweep
+    # measures nothing and every row looks alike. The first full run returned
+    # fall rate 0.98 at zero perturbation and would have been reported as
+    # "only latency matters" -- a conclusion produced entirely by a loading
+    # bug. Refuse rather than let that happen silently.
+    base_keys = jax.random.split(jax.random.PRNGKey(0), args.episodes)
+    base = {k: float(jnp.mean(v))
+            for k, v in batched(base_keys, 0, jnp.asarray(0.0)).items()}
+    print(f"\nBASELINE (no perturbation): return {base['return']:.2f}  "
+          f"tracking_mse {base['tracking_mse']:.4f}  "
+          f"fall rate {base['fell']:.2f}  survived {base['survived']:.2f}")
+    if base["survived"] < args.min_baseline_survival:
+        print(
+            f"\nREFUSING: the unperturbed policy survives only "
+            f"{base['survived']:.0%} of a {args.horizon}-step episode "
+            f"(need >= {args.min_baseline_survival:.0%}).\n"
+            "A policy that falls on its own cannot show which IMU error mode\n"
+            "breaks it. Likely causes, in order:\n"
+            "  1. observation preprocessing differs from training "
+            "(normalize_observations)\n"
+            "  2. the checkpoint is undertrained\n"
+            "  3. env config differs from the one trained against\n"
+            "Pass --force to sweep anyway; results will not be meaningful.",
+            file=sys.stderr,
+        )
+        if not args.force:
+            return 1
+    print("baseline ok -- the policy stands up unperturbed\n")
 
     # Sweep ranges. Gyro ranges deliberately span from well below BMI270
     # (7.9e-4 rad/s) to above the env's own DR (0.115 rad/s), so both
