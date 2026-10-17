@@ -291,6 +291,48 @@ So the honest formulation is not "policies are insensitive to IMUs" but:
 > targets the one part of the IMU error budget this policy does not care
 > about.
 
+### The gravity channel is mechanical, not a noise parameter
+
+The injection perturbs the **direction** of the projected-gravity unit vector
+and nothing else -- the vector is renormalised, so magnitude errors vanish.
+"Gravity tilt" therefore names the affected channel, not a physical cause.
+Everything that makes the robot's estimate of "down" point wrong produces it:
+
+- per-axis accelerometer zero-g offset
+- **differential** per-axis scale error (common-mode does nothing: it
+  renormalises away, which is why the earlier caption blaming the +-0.4%
+  common-mode scale spec was wrong)
+- cross-axis coupling and axis misalignment, which this model does not
+  include at all
+- **IMU mounting misalignment on the chassis**
+- estimator error from any source
+
+So the measured statement is: *the policy tolerates attitude-reference error
+to roughly 0.1 rad and breaks past 0.2*, whatever produced it.
+
+**This is the one place a mundane hardware imperfection lands near the
+failure threshold**, and it tightens the margin badly:
+
+| gravity offset | angle | return | fall rate |
+|---|---|---|---|
+| 0.0316 | 1.8 deg | 0.990 | 0.00 |
+| 0.0794 | 4.5 deg | 0.949 | 0.00 |
+| 0.1995 | 11.3 deg | 0.578 | 0.36 |
+| 0.5012 | 26.6 deg | 0.114 | 0.89 |
+
+Benchmarked against the datasheet zero-g offset (+-20 mg = 0.02 rad = 1.1 deg)
+the margin is ~10x. But a **3 degree IMU mounting misalignment is 0.052 rad**,
+which is within 1.5x of where return begins to drop, and a 5 degree error
+(0.0875) sits just below the knee. A few degrees of mechanical mounting error
+is ordinary on a hand-built robot, it is a *constant* tilt rather than a
+fluctuation, and it is not a datasheet parameter at all.
+
+The implication for the project is uncomfortable and belongs in the write-up:
+the whole effort was aimed at Allan-variance noise parameters, and the error
+budget that actually threatens this policy is **mechanical and
+estimator-side**. Misalignment should be added as its own OFAT factor with a
+defensible physical bound before any of this is published.
+
 ### How the field sees it
 
 Partially consistent, not settled, and nobody appears to have published this
