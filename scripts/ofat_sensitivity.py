@@ -277,8 +277,17 @@ def main() -> int:
                            **{k: np.array([r[k] for r in rows]) for k in rows[0]}}
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(args.out, **{f"{f}__{k}": v for f, d in results.items()
-                          for k, v in d.items()})
+    np.savez(
+        args.out,
+        # The unperturbed reference every curve is normalised against. Saved
+        # explicitly rather than inferred from the smallest magnitude, which
+        # is not zero for most factors.
+        **{f"baseline__{k}": np.asarray(v) for k, v in base.items()},
+        horizon=np.asarray(args.horizon),
+        episodes=np.asarray(args.episodes),
+        policy=np.asarray(str(args.policy)),
+        **{f"{f}__{k}": v for f, d in results.items() for k, v in d.items()},
+    )
     print(f"\nsaved -> {args.out}")
 
     print("\nREFERENCE MAGNITUDES")
