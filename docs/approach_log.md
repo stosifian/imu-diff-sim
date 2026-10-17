@@ -375,6 +375,76 @@ That is worth stating in the write-up: on this system the author's physical
 intuition has been a poor guide, which is itself an argument for measuring
 sensitivity before building a search.
 
+### Reframed: in-field drift, not bench noise
+
+The sensitive channel is attitude error, and the useful question is what
+produces it on a deployed robot rather than on a bench. All of these act
+**per-axis with different coefficients**, which is what turns them into a
+tilt instead of a harmless common-mode error:
+
+- **Temperature.** TCS 0.02 %/K gyro, 0.004 %/K accel; TCO 0.015 dps/K and
+  0.25 mg/K. A 40 K swing from lab calibration is ordinary outdoors.
+- **Package and PCB stress.** Solder relaxation, board flex, screw torque,
+  thermal cycling -- the reason Bosch quotes specs as "soldered, lifetime".
+- **Mechanical shock.** A fall can permanently shift offset and sensitivity.
+- **Aging**, and **CRT drifted since it was last run** (or never run).
+- **g-sensitivity**, 0.1 dps/g: under multi-g foot impacts this is a bias
+  locked to the gait cycle, not noise.
+- **Chassis deformation and re-assembly.** A bent leg or re-seated board
+  changes the IMU-to-body rotation. Not sensor error at all, and
+  indistinguishable from it to the policy.
+
+Stack-up against the measured threshold:
+
+| tilt source | degrees |
+|---|---|
+| accel zero-g offset (+-20 mg) | 1.15 |
+| accel TCO over 40 K | 0.57 |
+| accel cross-axis (1 %) | 0.57 |
+| differential TCS over 40 K | 0.09 |
+| **RSS, datasheet only** | **1.41** |
+| **+ 3 deg mechanical mounting** | **4.41** |
+| *measured degradation onset* | *4.54* |
+
+A realistic field stack-up sits essentially **at** the threshold. The gyro
+comparison is the opposite: in-field drift gives ~0.6-1.0 dps against a
+measured knee at 29 dps, 30-50x clear.
+
+So: **gyro drift is irrelevant in the field; attitude drift is marginal in
+the field.** Every dominant tilt contributor is persistent, per-axis and
+slowly varying -- exactly the structure uniform i.i.d. DR omits.
+
+### Ablation: corruption-insensitive is not the same as unused
+
+The sweeps above corrupt the IMU. They do not remove it, and the difference
+turns out to matter more than anything else measured. Adding three ablation
+factors -- blend the gyro toward zero, the gravity vector toward nominal
+upright, or both -- gives the opposite ordering to the corruption result:
+
+| full removal | return | tracking MSE | fall rate |
+|---|---|---|---|
+| baseline | 32.17 | 0.035 | 0.00 |
+| **gyro removed** | **9.86** | **6.83** | **0.52** |
+| gravity removed | 30.25 | 0.042 | 0.03 |
+| both removed | 5.61 | 4.94 | 0.80 |
+
+**The gyro is essential.** Removing it costs 70 % of return, raises tracking
+error 195-fold and drops half the episodes. It was never an unused input --
+it is simply robust to corruption out to ~0.5 rad/s, which is 635x the
+BMI270 noise. "Insensitive to noise" and "not needed" are different claims,
+and only the ablation separates them.
+
+**Gravity is nearly dispensable, yet tilting it is ruinous.** Removing it
+costs 6 %; tilting it 11 deg costs 42 %. The explanation is that the
+ablation replaces it with nominal upright, which on flat terrain is close to
+the correct answer, so little information is lost. A tilt supplies actively
+*wrong* information. For this channel wrong is far worse than absent -- and
+that, not information content, is why it is the sensitive one.
+
+That yields a prediction worth testing rather than asserting: on rough
+terrain, where the robot genuinely is not upright, gravity ablation should
+hurt considerably more.
+
 ### How the field sees it
 
 Partially consistent, not settled, and nobody appears to have published this
