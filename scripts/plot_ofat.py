@@ -251,6 +251,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("npz", type=Path)
     ap.add_argument("--outdir", type=Path, default=Path("reports/figures"))
+    ap.add_argument("--tag", default="", help="suffix for output filenames")
     args = ap.parse_args()
 
     d = np.load(args.npz, allow_pickle=True)
@@ -261,8 +262,9 @@ def main() -> int:
     print(f"horizon {horizon}; DR persistent component "
           f"{dr_persistent:.3e} rad/s\nwrote:")
 
-    headline(d, args.outdir / "ofat-white-vs-bias.png", dr_persistent)
-    grid_figure(d, args.outdir / "ofat-all-factors.png")
+    t = f"-{args.tag}" if args.tag else ""
+    headline(d, args.outdir / f"ofat-white-vs-bias{t}.png", dr_persistent)
+    grid_figure(d, args.outdir / f"ofat-all-factors{t}.png")
     knee_table(d)
     return 0
 
