@@ -27,6 +27,8 @@ learned from a failed Colab run:
                each other's pins.
 """
 
+import os
+
 import modal
 
 STACK = [
@@ -64,7 +66,7 @@ app = modal.App("imu-diff-sim", image=image)
 # Survives between runs: checkpoints, sweep outputs, the menagerie cache.
 vol = modal.Volume.from_name("imu-diff-sim-runs", create_if_missing=True)
 
-GPU = "A10G"
+GPU = os.environ.get("IMU_MODAL_GPU", "T4")
 COMMON = dict(gpu=GPU, volumes={"/runs": vol}, timeout=60 * 60 * 4)
 
 
