@@ -70,16 +70,38 @@ GPU = os.environ.get("IMU_MODAL_GPU", "T4")
 COMMON = dict(gpu=GPU, volumes={"/runs": vol}, timeout=60 * 60 * 4)
 
 
+#: Lines MJX/Warp emit per physics step. At training rates this floods stdout
+#: hard enough that Modal drops output ("exceeded output rate limit"), which
+#: swallowed the progress lines and the throughput number on the first run.
+#: The solver-iteration warning is benign -- the Playground Go1 config uses a
+#: low iteration count deliberately -- so it is dropped rather than fixed.
+_NOISE = (
+    "solver iterations limit reached",
+    "To disable the print warning",
+    "load on device",
+    "Module ",
+)
+
+
 def _run(cmd: str) -> int:
-    """Run a shell command in the repo, streaming output, and commit the volume."""
+    """Run a command in the repo, filtering known log spam, and commit /runs."""
     import subprocess
     import sys
+    import time
+
+    pattern = "|".join(n.replace(" ", "[[:space:]]") for n in _NOISE)
+    wrapped = f"set -o pipefail; {cmd} 2>&1 | grep -a -v -E '{pattern}'"
 
     print(f"$ {cmd}", flush=True)
-    rc = subprocess.run(cmd, shell=True, cwd="/root/imu-diff-sim").returncode
-    vol.commit()  # persist anything written to /runs before the container dies
+    t0 = time.time()
+    rc = subprocess.run(
+        wrapped, shell=True, cwd="/root/imu-diff-sim", executable="/bin/bash"
+    ).returncode
+    elapsed = time.time() - t0
+    vol.commit()  # persist /runs before the container dies
+    print(f"\n[{elapsed:.1f}s wall, exit {rc}]", flush=True)
     if rc != 0:
-        print(f"exit {rc}", file=sys.stderr, flush=True)
+        print(f"FAILED: exit {rc}", file=sys.stderr, flush=True)
     return rc
 
 

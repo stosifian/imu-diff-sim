@@ -56,6 +56,13 @@ def main() -> int:
         )
         return 2
 
+    # brax 0.14.2 calls jax.device_put_replicated, which JAX removed. Must be
+    # installed before ppo.train runs; see imu_diff_sim.compat for the detail.
+    from imu_diff_sim.compat import patch_device_put_replicated
+
+    if patch_device_put_replicated():
+        print("compat: restored jax.device_put_replicated for brax")
+
     from brax.training.agents.ppo import networks as ppo_networks
     from brax.training.agents.ppo import train as ppo
     from mujoco_playground import registry, wrapper

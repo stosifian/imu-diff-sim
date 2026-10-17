@@ -143,6 +143,11 @@ def main() -> int:
 
     import jax
     import jax.numpy as jnp
+
+    from imu_diff_sim.compat import patch_device_put_replicated
+
+    patch_device_put_replicated()  # brax network construction may hit it too
+
     from brax.training.agents.ppo import networks as ppo_networks
     from mujoco_playground import registry, wrapper
 
