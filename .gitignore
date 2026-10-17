@@ -17,3 +17,4 @@ reports/figures/*.png
 !reports/figures/.gitkeep
 
 *.egg-info/
+IMU_PROJECT_BRIEF.md
