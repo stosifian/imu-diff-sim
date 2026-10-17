@@ -47,7 +47,12 @@ PLAYGROUND_GRAVITY_DR_HALFWIDTH = 0.05
 #: policy was trained against. Playground's DR is zero-mean i.i.d., so its
 #: persistent component over an N-step episode is only DR_std/sqrt(N).
 BMI270_GYRO_TURN_ON_BIAS_BOUND = 0.5 * 3.141592653589793 / 180.0   # 8.73e-3 rad/s
-BMI270_ACCEL_TURN_ON_BIAS_TILT = 20e-3 * 9.80665 / 9.80665          # 0.02 (gravity units)
+#: Tilt of the gravity unit vector from the accel zero-g OFFSET (+-20 mg).
+#: NOT from the scale-factor spec: projected gravity is renormalised, so a
+#: common-mode scale error changes the vector's length and not its
+#: direction, producing zero tilt. Only an offset, or a per-axis
+#: differential scale error, tilts it.
+BMI270_ACCEL_TURN_ON_BIAS_TILT = 20e-3              # rad, approx
 PLAYGROUND_GYRO_DR_EPISODE_MEAN_500 = PLAYGROUND_GYRO_DR_STD / (500 ** 0.5)
 
 

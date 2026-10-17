@@ -61,6 +61,11 @@ FACTOR_UNIT = {
 # See src/imu_diff_sim/sim/go1_obs.py for provenance.
 BMI270_WHITE = 1.116e-4 / (0.02 ** 0.5)          # 7.89e-4 rad/s
 BMI270_BIAS = 0.5 * np.pi / 180.0                # 8.73e-3 rad/s, datasheet bound
+# Gravity tilt is a DIRECTION error: the perturbed vector is renormalised, so
+# a common-mode accelerometer scale error produces exactly zero tilt. The
+# datasheet source of a tilt is the zero-g OFFSET (+-20 mg -> ~0.02 rad), or a
+# per-axis differential scale error -- not the +-0.4% common-mode spec.
+BMI270_TILT = 20e-3                              # rad, from +-20 mg zero-g offset
 DR_WHITE = 0.2 / np.sqrt(3.0)                    # 0.1155 rad/s
 
 
@@ -133,8 +138,11 @@ def grid_figure(d, out: Path) -> None:
     factors = [f for f in FACTOR_LABEL if f"{f}__magnitudes" in d]
     base = float(d["baseline__return"])
     n = len(factors)
-    fig, axes = plt.subplots(2, n, figsize=(3.0 * n, 6.2),
+    fig, axes = plt.subplots(2, n, figsize=(3.1 * n, 7.4),
                              constrained_layout=True)
+    # Reserve space top and bottom: constrained_layout does not account for
+    # a left-aligned suptitle, and the bottom xlabels were being clipped.
+    fig.get_layout_engine().set(rect=(0, 0.012, 1, 0.895), hspace=0.09)
     fig.patch.set_facecolor(SURFACE)
 
     for j, factor in enumerate(factors):
@@ -149,6 +157,8 @@ def grid_figure(d, out: Path) -> None:
         ax.set_ylim(-0.05, 1.25)
         ax.set_title(FACTOR_LABEL[factor], color=INK, fontsize=10,
                      fontweight="bold", pad=6)
+        ax.set_xlabel(f"magnitude [{FACTOR_UNIT[factor]}]",
+                      color=INK_2, fontsize=8.5)
         if j == 0:
             ax.set_ylabel("return\n(fraction of unperturbed)",
                           color=INK_2, fontsize=9)
@@ -170,11 +180,15 @@ def grid_figure(d, out: Path) -> None:
                 _vref(a, BMI270_WHITE if factor == "gyro_white" else BMI270_BIAS,
                       "BMI270")
 
-    fig.suptitle(
-        f"IMU error sensitivity of a Go1 joystick policy  |  "
-        f"{int(d['episodes'])} episodes x {int(d['horizon'])} steps  |  "
-        f"baseline return {base:.1f}, fall rate {float(d['baseline__fell']):.2f}",
-        color=INK, fontsize=11, fontweight="bold", x=0.01, ha="left")
+    fig.text(0.008, 0.990,
+             "IMU error sensitivity of a Go1 joystick policy",
+             color=INK, fontsize=12.5, fontweight="bold", va="top")
+    fig.text(0.008, 0.948,
+             f"{int(d['episodes'])} episodes x {int(d['horizon'])} steps  |  "
+             f"baseline return {base:.1f}, fall rate "
+             f"{float(d['baseline__fell']):.2f}, survival "
+             f"{float(d['baseline__survived']):.2f}",
+             color=INK_2, fontsize=9, va="top")
     fig.savefig(out, dpi=170, facecolor=SURFACE)
     print(f"  {out}")
 
