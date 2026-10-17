@@ -445,6 +445,45 @@ That yields a prediction worth testing rather than asserting: on rough
 terrain, where the robot genuinely is not upright, gravity ablation should
 hurt considerably more.
 
+**Confirmed, and by a wide margin.**
+
+| full removal | flat return | flat fall | rough return | rough fall |
+|---|---|---|---|---|
+| gyro | 9.86 (-70 %) | 0.52 | 10.42 (-67 %) | 0.41 |
+| gravity | 30.25 (-6 %) | 0.03 | **10.62 (-66 %)** | **0.92** |
+| both | 5.61 | 0.80 | 1.90 | 0.92 |
+
+Removing the gravity vector costs 6 % on flat ground and 66 % on rough, with
+the fall rate going from 3 % to 92 %. The upright prior is a good
+approximation on flat terrain and a bad one on rough, exactly as the
+mechanism predicts. The gyro, by contrast, is essential on both -- its role
+does not depend on the ground.
+
+This is the first prediction in the project that came out right, and it is
+worth noting *why*: it was derived from a mechanism inferred from the
+measurements, not from physical intuition about the sensor. The three
+predictions made from intuition -- persistent bias would decide it, gravity
+tilt would not fail, rough terrain would shrink the gyro margins -- were all
+wrong.
+
+### What the IMU is actually for, on this robot
+
+Putting the corruption and ablation results together gives a cleaner account
+than either alone:
+
+- **The gyro is required and precision-tolerant.** The policy needs to know
+  roughly how fast the body is rotating; it does not need that number to be
+  accurate. 50 % scale error and 635x the datasheet noise both cost almost
+  nothing, but removing the signal costs 70 % of return on both terrains.
+- **The gravity vector is required only when the upright prior fails.** On
+  flat ground a constant is nearly as good. On rough ground it is the
+  difference between walking and falling.
+- **Wrong beats absent, for attitude.** Tilting gravity 11 deg costs 42 % on
+  flat terrain while removing it costs 6 %. Every in-field drift mechanism
+  listed above -- temperature, mounting, package stress -- produces a wrong
+  value rather than a missing one, which is why that list is the one that
+  matters.
+
 ### How the field sees it
 
 Partially consistent, not settled, and nobody appears to have published this
