@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.ipynb_checkpoints/
+
+# Raw sensor logs are large and device-specific; fetch or record them locally.
+data/*.csv
+data/*.npy
+data/*.parquet
+!data/README.md
+
+# Run outputs
+runs/
+wandb/
+reports/figures/*.png
+!reports/figures/.gitkeep
+
+*.egg-info/
