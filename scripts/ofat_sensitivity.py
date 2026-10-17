@@ -42,7 +42,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np  # noqa: E402
 
-FACTORS = ("gyro_white", "gyro_bias", "gyro_scale", "gravity_tilt", "latency")
+FACTORS = ("gyro_white", "gyro_bias", "gyro_scale", "gravity_tilt", "latency",
+           "ablate_gyro", "ablate_gravity", "ablate_both")
 
 
 def build_rollout(env, inference_fn, cfg):
@@ -79,6 +80,23 @@ def build_rollout(env, inference_fn, cfg):
             tilted = grav + magnitude * bias_dir
             tilted = tilted / (jnp.linalg.norm(tilted) + 1e-9)
             grav = jnp.where(factor_id == 3, tilted, grav)
+
+            # Ablation. Magnitude is a blend weight in [0, 1] from the true
+            # signal toward a constant: gyro -> 0 (no rotation sensed),
+            # gravity -> nominal upright (0, 0, -1). Blending rather than
+            # hard-zeroing keeps magnitude=0 identical to baseline, so these
+            # share the sweep machinery and the baseline gate.
+            #
+            # This answers a DIFFERENT question from the corruption factors.
+            # A flat response to corruption means robustness, not that the
+            # channel is unused; only removing it distinguishes the two.
+            w = jnp.clip(magnitude, 0.0, 1.0)
+            upright = jnp.array([0.0, 0.0, -1.0])
+            gyro = jnp.where(
+                (factor_id == 5) | (factor_id == 7), gyro * (1.0 - w), gyro)
+            grav = jnp.where(
+                (factor_id == 6) | (factor_id == 7),
+                grav * (1.0 - w) + upright * w, grav)
 
             # Latency: integer delay in whole control steps. Applied to both
             # IMU-derived channels, since on hardware they share a path.
@@ -257,6 +275,9 @@ def main() -> int:
         "gyro_scale": np.logspace(-3, np.log10(0.5), args.points),
         "gravity_tilt": np.logspace(-3.5, -0.3, args.points),
         "latency": np.arange(0, min(args.points, 8), dtype=float),
+        "ablate_gyro": np.linspace(0.0, 1.0, args.points),
+        "ablate_gravity": np.linspace(0.0, 1.0, args.points),
+        "ablate_both": np.linspace(0.0, 1.0, args.points),
     }
 
     keys = jax.random.split(jax.random.PRNGKey(0), args.episodes)
