@@ -115,11 +115,15 @@ def build_rollout(env, inference_fn, cfg):
             step, (state, lat_buf, grav_buf, k_act), jnp.arange(horizon)
         )
         # Everything after the first termination is not meaningful; mask it.
-        alive = jnp.cumprod(1.0 - done)
+        # jnp.where, not multiplication: a terminated MJX state can step to
+        # NaN, and NaN * 0 is NaN, which would silently poison every mean.
+        alive = jnp.cumprod(1.0 - done) > 0
         n_alive = jnp.sum(alive)
+        rew_m = jnp.where(alive, jnp.nan_to_num(rew), 0.0)
+        track_m = jnp.where(alive, jnp.nan_to_num(track), 0.0)
         return {
-            "return": jnp.sum(rew * alive),
-            "tracking_mse": jnp.sum(track * alive) / jnp.maximum(n_alive, 1.0),
+            "return": jnp.sum(rew_m),
+            "tracking_mse": jnp.sum(track_m) / jnp.maximum(n_alive, 1.0),
             "fell": jnp.max(done),
             "survived": n_alive / horizon,
         }
@@ -149,7 +153,7 @@ def main() -> int:
     patch_device_put_replicated()  # brax network construction may hit it too
 
     from brax.training.agents.ppo import networks as ppo_networks
-    from mujoco_playground import registry, wrapper
+    from mujoco_playground import registry
 
     from imu_diff_sim.sim.go1_obs import (
         BMI270_GYRO_WHITE_STD_50HZ,
@@ -163,9 +167,18 @@ def main() -> int:
     cfg = registry.get_default_config(args.env)
     cfg.noise_config.level = 0.0  # critical: measure against a clean floor
     env = registry.load(args.env, config=cfg)
-    env = wrapper.wrap_for_brax_training(
-        env, episode_length=args.horizon, action_repeat=1
-    )
+
+    # Deliberately NOT wrap_for_brax_training. That wrapper batches the env and
+    # vmaps keys internally, so vmapping the rollout on top of it double-batches
+    # and jax.random.split gets a scalar key. We batch here instead, which also
+    # keeps the per-episode noise draws (bias direction, white sequence) aligned
+    # one-to-one with episodes -- the whole point of the persistent factors.
+    #
+    # The wrapper also supplies autoreset and episode-length truncation, which
+    # we therefore do without: the scan runs a fixed horizon and masks every
+    # step after the first termination. Stepping a terminated state can produce
+    # NaNs, so the mask uses jnp.where rather than multiplication -- NaN * 0 is
+    # still NaN and would poison the means.
 
     ppo_params = blob.get("ppo_params", {})
     net_kwargs = dict(ppo_params.get("network_factory", {}) or {})

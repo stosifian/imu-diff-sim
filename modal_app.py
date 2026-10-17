@@ -77,6 +77,7 @@ COMMON = dict(gpu=GPU, volumes={"/runs": vol}, timeout=60 * 60 * 4)
 #: low iteration count deliberately -- so it is dropped rather than fixed.
 _NOISE = (
     "solver iterations limit reached",
+    "linesearch iterations limit reached",
     "To disable the print warning",
     "load on device",
     "Module ",
