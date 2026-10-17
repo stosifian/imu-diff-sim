@@ -48,6 +48,15 @@ class ImuParams(NamedTuple):
     gyroscope_scale_factor: Array       # [dimensionless] fractional, 0.0 == perfect
     accelerometer_scale_factor: Array   # [dimensionless] fractional, 0.0 == perfect
 
+    # --- Turn-on bias: constant for the episode, SEARCHED not sampled ---
+    # Per-axis, shape (3,). Deterministic parameters rather than random draws,
+    # so the adversarial search can target them directly instead of seeing
+    # them as nuisance randomness. One searched constant also stands in for
+    # the slow thermal offset, which over a 20 s episode is indistinguishable
+    # from a constant.
+    gyroscope_turn_on_bias: Array       # [rad / s],   shape (3,)
+    accelerometer_turn_on_bias: Array   # [m / s^2],   shape (3,)
+
 
 # ---------------------------------------------------------------------------
 # BMI270 reference values.
@@ -69,21 +78,25 @@ _NOMINAL: dict[str, float] = {
     "accelerometer_random_walk": 7.27e-5,
     "gyroscope_scale_factor": 0.0,
     "accelerometer_scale_factor": 0.0,
+    "gyroscope_turn_on_bias": 0.0,
+    "accelerometer_turn_on_bias": 0.0,
 }
 
 BMI270_PROVENANCE: dict[str, str] = {
     "gyroscope_noise_density": (
-        "COMMUNITY 1.116e-4 rad/s/sqrt(Hz), used as nominal. DATASHEET quotes "
-        "typ. < 7 mdps/sqrt(Hz) in Performance mode -> 1.22e-4; the two do not "
-        "conflict, since the datasheet figure is an upper bound on typical and "
-        "the measurement sits under it. Nominal is the measurement because the "
-        "search box centre should be a real device, not a spec ceiling; the "
-        "datasheet value lies inside the box."
+        "COMMUNITY 1.116e-4 rad/s/sqrt(Hz), used as nominal. DATASHEET "
+        "(DS000-08 Tables 10-12, fig 12) implies N = 8.64e-5 in PERFORMANCE "
+        "mode and 1.23e-4 in NORMAL mode; the datasheet density is one-sided, "
+        "with rms/(density*sqrt(f_3dB)) ~ 1.0 at every ODR <= 1.6 kHz, so "
+        "there is no sqrt(2) convention factor to apply. The Luxonis nominal "
+        "matches NORMAL mode, not performance mode. THE SIM MUST BE "
+        "CONFIGURED FOR NORMAL MODE for this nominal to be self-consistent."
     ),
     "accelerometer_noise_density": (
-        "COMMUNITY 1.405e-3 m/s^2/sqrt(Hz). DATASHEET cross-check: 160 ug/sqrt(Hz) "
-        "at BW=100 Hz -> 1.57e-3 m/s^2/sqrt(Hz), consistent. Datasheet accel noise "
-        "varies by ODR/mode (Tables 8, 11, 12) -- revisit once the sim ODR is fixed."
+        "COMMUNITY 1.405e-3 m/s^2/sqrt(Hz), used as nominal. DATASHEET implies "
+        "1.11e-3; the measurement is 27% higher, which is unsurprising for a "
+        "part inside a camera body. Datasheet accel noise varies by ODR/mode "
+        "(Tables 8, 11, 12) -- revisit once the sim ODR is fixed."
     ),
     "gyroscope_random_walk": (
         "COMMUNITY 1.06e-5 rad/s^2/sqrt(Hz). Not in the datasheet. WEAKEST NUMBER "
@@ -97,20 +110,45 @@ BMI270_PROVENANCE: dict[str, str] = {
         "caveat; box widened to (0.5, 20)."
     ),
     "gyroscope_scale_factor": (
-        "UNKNOWN as a nominal -- set to 0.0 (perfect sensor) so the search box is "
-        "centred on no scale error. The BOUND, not the nominal, carries the physics; "
-        "see SCALE_FACTOR_BOUND."
+        "Nominal 0.0 by construction: the box is centred on no scale error and "
+        "the BOUND carries the physics. DATASHEET gyro sensitivity error "
+        "+-2% without CRT (DS000-08 Table 3) -> GYRO_SCALE_FACTOR_BOUND."
     ),
     "accelerometer_scale_factor": (
-        "UNKNOWN as a nominal -- set to 0.0, as above."
+        "Nominal 0.0 by construction. DATASHEET accel sensitivity tolerance "
+        "+-0.4% (DS000-08 Table 2) -> ACCEL_SCALE_FACTOR_BOUND. Deliberately "
+        "NOT the gyro's 2%: a shared bound would make the accel box 5x the "
+        "datasheet spec and manufacture failures that no real part exhibits."
     ),
-    "SCALE_FACTOR_BOUND": (
-        "UNKNOWN provenance: 0.02 was entered without a source. NEEDS A DATASHEET "
-        "CITATION before the write-up. Intended basis (brief discussion): the "
-        "WITHOUT-CRT gyro sensitivity-error spec, since a device whose integrator "
-        "never ran component retrimming is a real device and belongs at the box "
-        "edge. Note also that sensitivity temperature coefficient (TCS) stacks on "
-        "top of the room-temperature tolerance, arguing for a wider bound."
+    "gyroscope_turn_on_bias": (
+        "Nominal 0.0; the bound carries the physics. DATASHEET gyro zero-rate "
+        "offset +-0.5 dps = +-8.727e-3 rad/s (DS000-08 Table 3). This is "
+        "60-190x the within-episode random-walk drift at T_ep = 20 s, which "
+        "makes it the dominant bias term by a wide margin and the reason "
+        "initial_bias() no longer returns zero."
+    ),
+    "accelerometer_turn_on_bias": (
+        "Nominal 0.0; the bound carries the physics. DATASHEET accel zero-g "
+        "offset +-20 mg = +-0.19613 m/s^2 (DS000-08 Table 2)."
+    ),
+    "GYRO_SCALE_FACTOR_BOUND": (
+        "DATASHEET +-2%, the gyro sensitivity error WITHOUT CRT (DS000-08 "
+        "Table 3). A device whose integrator never ran component retrimming "
+        "is a real device and belongs at the box edge. Sensitivity "
+        "temperature coefficient stacks on top of this; not modelled."
+    ),
+    "ACCEL_SCALE_FACTOR_BOUND": (
+        "DATASHEET +-0.4%, accel sensitivity tolerance (DS000-08 Table 2)."
+    ),
+    "GYRO_TURN_ON_BIAS_BOUND": (
+        "DATASHEET +-0.5 dps zero-rate offset (DS000-08 Table 3), converted "
+        "to rad/s. Add +-TCO*dT (0.015 dps/K) if the robot's thermal range "
+        "exceeds the lab's; not currently included."
+    ),
+    "ACCEL_TURN_ON_BIAS_BOUND": (
+        "DATASHEET +-20 mg zero-g offset (DS000-08 Table 2), converted to "
+        "m/s^2. Add +-TCO*dT (0.25 mg/K) for wider thermal range; not "
+        "currently included."
     ),
 }
 
@@ -142,24 +180,71 @@ def bmi270_nominal() -> ImuParams:
 # ---------------------------------------------------------------------------
 
 SEARCH_BOX_FACTORS: dict[str, tuple[float, float]] = {
-    "gyroscope_noise_density": (0.5, 5.0),
-    "accelerometer_noise_density": (0.5, 5.0),
-    "gyroscope_random_walk": (0.5, 20.0),
-    "accelerometer_random_walk": (0.5, 20.0),
+    # (lo, hi) multiplicative factors on nominal, each tagged with its source.
+    "gyroscope_noise_density": (0.5, 5.0),      # LITERATURE (Suvorkin 2024)
+    "accelerometer_noise_density": (0.5, 5.0),  # LITERATURE (Suvorkin 2024)
+    "gyroscope_random_walk": (0.5, 20.0),       # UNSOURCED -- see below
+    "accelerometer_random_walk": (0.5, 20.0),   # UNSOURCED -- see below
 }
 
-#: Max |fractional scale error|. See BMI270_PROVENANCE["SCALE_FACTOR_BOUND"] --
-#: this value still needs a datasheet citation.
-SCALE_FACTOR_BOUND: float = 0.02
+#: Provenance per box edge. The random-walk box is deliberately wider because
+#: the datasheet specifies no random walk at all and the only measurement is
+#: the single Luxonis device whose author doubted it -- but "wider because we
+#: know less" is a judgement, not a source, and the write-up must say so.
+SEARCH_BOX_PROVENANCE: dict[str, str] = {
+    "gyroscope_noise_density": (
+        "LITERATURE: spans roughly the consumer-MEMS grade spread in Suvorkin "
+        "et al. 2024 (10.3390/s24061953). The datasheet performance-mode "
+        "value (8.64e-5) and normal-mode value (1.23e-4) both lie inside."
+    ),
+    "accelerometer_noise_density": (
+        "LITERATURE: as above. Datasheet-implied 1.11e-3 lies inside."
+    ),
+    "gyroscope_random_walk": (
+        "UNSOURCED. No datasheet value exists; the box is widened to (0.5, 20) "
+        "to reflect that we know less, not because a source supports that "
+        "range. Report any failure found here at a lower plausibility tier."
+    ),
+    "accelerometer_random_walk": "UNSOURCED, as above.",
+}
 
-#: Field order of the flat unconstrained vector. Log-squashed fields first (in
-#: SEARCH_BOX_FACTORS order), then the linear-squashed scale factors.
+# ---------------------------------------------------------------------------
+# Bounded (tanh-squashed) parameters. Every bound below is a datasheet number;
+# see BMI270_PROVENANCE for the table reference. Bounds are PER SENSOR because
+# the gyro and accelerometer specs differ by 5x, and a shared bound would
+# manufacture failures no real part exhibits.
+# ---------------------------------------------------------------------------
+
+_DPS_TO_RAD_S = math.pi / 180.0
+_MG_TO_M_S2 = 9.80665e-3
+
+GYRO_SCALE_FACTOR_BOUND: float = 0.02            # +-2%, no-CRT (Table 3)
+ACCEL_SCALE_FACTOR_BOUND: float = 0.004          # +-0.4%     (Table 2)
+GYRO_TURN_ON_BIAS_BOUND: float = 0.5 * _DPS_TO_RAD_S    # +-0.5 dps  (Table 3)
+ACCEL_TURN_ON_BIAS_BOUND: float = 20.0 * _MG_TO_M_S2    # +-20 mg    (Table 2)
+
+#: field -> (bound, shape). Scalars have shape (), per-axis fields (3,).
+BOUNDED_FIELDS: dict[str, tuple[float, tuple[int, ...]]] = {
+    "gyroscope_scale_factor": (GYRO_SCALE_FACTOR_BOUND, ()),
+    "accelerometer_scale_factor": (ACCEL_SCALE_FACTOR_BOUND, ()),
+    "gyroscope_turn_on_bias": (GYRO_TURN_ON_BIAS_BOUND, (3,)),
+    "accelerometer_turn_on_bias": (ACCEL_TURN_ON_BIAS_BOUND, (3,)),
+}
+
+#: Field order of the flat unconstrained vector: log-squashed fields first
+#: (in SEARCH_BOX_FACTORS order), then the bounded fields, each contributing
+#: prod(shape) or 1 entries.
 LOG_FIELDS: tuple[str, ...] = tuple(SEARCH_BOX_FACTORS)
-SCALE_FIELDS: tuple[str, ...] = (
-    "gyroscope_scale_factor",
-    "accelerometer_scale_factor",
-)
-UNCONSTRAINED_FIELDS: tuple[str, ...] = LOG_FIELDS + SCALE_FIELDS
+BOUNDED_FIELD_NAMES: tuple[str, ...] = tuple(BOUNDED_FIELDS)
+UNCONSTRAINED_FIELDS: tuple[str, ...] = LOG_FIELDS + BOUNDED_FIELD_NAMES
+
+
+def unconstrained_size() -> int:
+    """Length of the flat search vector."""
+    n = len(LOG_FIELDS)
+    for _, shape in BOUNDED_FIELDS.values():
+        n += int(math.prod(shape)) if shape else 1
+    return n
 
 
 def _log_bounds(name: str) -> tuple[float, float]:
@@ -180,23 +265,22 @@ def _log_bounds(name: str) -> tuple[float, float]:
 def to_unconstrained(params: ImuParams) -> Array:
     """Map physical parameters to an unbounded vector the optimizer walks on.
 
-    Inverse of `from_unconstrained`. Both must be written as a pair; a test
-    enforces the round trip.
+    Inverse of `from_unconstrained`; a test enforces the round trip.
 
-    Note that a parameter sitting exactly ON a box edge maps to +-inf, because
-    arctanh(+-1) is infinite. Nominal must therefore be strictly inside the box
-    (it is: every factor range brackets 1.0, and scale-factor nominal is 0.0,
-    strictly inside +-SCALE_FACTOR_BOUND).
+    A parameter sitting exactly ON a box edge maps to +-inf, since
+    arctanh(+-1) is infinite. Nominal is strictly inside every box: the factor
+    ranges all bracket 1.0, and every bounded field has nominal 0.0.
     """
     values = []
     for name in LOG_FIELDS:
         lo_log, hi_log = _log_bounds(name)
-        # Invert: param = exp(lo + (hi-lo)*(tanh(u)+1)/2)
         t = 2.0 * (jnp.log(getattr(params, name)) - lo_log) / (hi_log - lo_log) - 1.0
-        values.append(jnp.arctanh(t))
-    for name in SCALE_FIELDS:
-        values.append(jnp.arctanh(getattr(params, name) / SCALE_FACTOR_BOUND))
-    return jnp.stack(values)
+        values.append(jnp.atleast_1d(jnp.arctanh(t)))
+    for name in BOUNDED_FIELD_NAMES:
+        bound, shape = BOUNDED_FIELDS[name]
+        v = jnp.broadcast_to(jnp.asarray(getattr(params, name)), shape or ())
+        values.append(jnp.atleast_1d(jnp.arctanh(v / bound)))
+    return jnp.concatenate(values)
 
 
 def from_unconstrained(u: Array) -> ImuParams:
@@ -209,21 +293,29 @@ def from_unconstrained(u: Array) -> ImuParams:
 
     so u -> -inf gives lo*nominal, u -> +inf gives hi*nominal, and u = 0 gives
     the GEOMETRIC mean sqrt(lo*hi)*nominal -- not nominal, unless lo*hi == 1.
-    Worth remembering when choosing where gradient-search restarts begin.
 
-    Scale factors: tanh alone, in linear space, because a scale error is signed
-    and log would be wrong.
+    Scale factors and turn-on biases: tanh alone, in linear space, because
+    those errors are signed; log would be wrong. Each uses its own per-sensor
+    datasheet bound.
 
-    Because tanh saturates, parameters at the exact box edges are reachable
-    only asymptotically and the gradient there goes to zero. That is usually
-    desirable -- the optimizer decelerates into the wall rather than slamming
-    into it -- but it means a failure mode sitting at the upper edge shows up
-    as the search stalling near it, which is a signal the box is too narrow.
+    Because tanh saturates, box edges are reachable only asymptotically and
+    the gradient there goes to zero. That is usually desirable -- the
+    optimizer decelerates into the wall rather than slamming into it -- but a
+    failure mode sitting at an edge shows up as the search stalling near it,
+    which signals the box is too narrow.
     """
     out: dict[str, Array] = {}
-    for i, name in enumerate(LOG_FIELDS):
+    i = 0
+    for name in LOG_FIELDS:
         lo_log, hi_log = _log_bounds(name)
-        out[name] = jnp.exp(lo_log + (hi_log - lo_log) * (jnp.tanh(u[i]) + 1.0) / 2.0)
-    for j, name in enumerate(SCALE_FIELDS, start=len(LOG_FIELDS)):
-        out[name] = SCALE_FACTOR_BOUND * jnp.tanh(u[j])
+        out[name] = jnp.exp(
+            lo_log + (hi_log - lo_log) * (jnp.tanh(u[i]) + 1.0) / 2.0
+        )
+        i += 1
+    for name in BOUNDED_FIELD_NAMES:
+        bound, shape = BOUNDED_FIELDS[name]
+        n = int(math.prod(shape)) if shape else 1
+        chunk = u[i : i + n]
+        out[name] = bound * jnp.tanh(chunk.reshape(shape) if shape else chunk[0])
+        i += n
     return ImuParams(**out)
