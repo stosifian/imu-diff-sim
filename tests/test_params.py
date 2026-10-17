@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from imu_diff_sim.params import (
-    SCALE_FACTOR_BOUND,
+    BOUNDED_FIELDS,
     SEARCH_BOX_FACTORS,
     ImuParams,
     bmi270_nominal,
@@ -56,14 +56,18 @@ def test_extreme_unconstrained_values_stay_physical(magnitude):
                 f"[{lo*base:.4g}, {hi*base:.4g}] at u offset {sign*magnitude}. "
                 "The transform, not a clip, must enforce this."
             )
-        assert abs(float(p.gyroscope_scale_factor)) <= SCALE_FACTOR_BOUND + 1e-9
-        assert abs(float(p.accelerometer_scale_factor)) <= SCALE_FACTOR_BOUND + 1e-9
+        for name, (bound, _) in BOUNDED_FIELDS.items():
+            v = np.abs(np.asarray(getattr(p, name)))
+            assert np.all(v <= bound * (1 + 1e-6) + 1e-12), (
+                f"{name} = {v} escaped its datasheet bound {bound} "
+                f"at u offset {sign * magnitude}"
+            )
 
 
 def test_transform_is_differentiable():
     """jax.grad through the transform must be finite -- the search depends on it."""
     u = to_unconstrained(bmi270_nominal())
-    g = jax.grad(lambda v: jnp.sum(jnp.stack(list(from_unconstrained(v)))))(u)
+    g = jax.grad(lambda v: sum(jnp.sum(leaf) for leaf in from_unconstrained(v)))(u)
     assert jnp.all(jnp.isfinite(g)), "non-finite gradient through the parameter transform"
 
 
@@ -100,7 +104,10 @@ def test_every_parameter_has_provenance():
 
     # Module-level constants that are not ImuParams fields but still carry a
     # number someone has to defend in the write-up.
-    extra_constants = {"SCALE_FACTOR_BOUND"}
+    extra_constants = {
+        "GYRO_SCALE_FACTOR_BOUND", "ACCEL_SCALE_FACTOR_BOUND",
+        "GYRO_TURN_ON_BIAS_BOUND", "ACCEL_TURN_ON_BIAS_BOUND",
+    }
 
     fields = set(ImuParams._fields)
     documented = set(BMI270_PROVENANCE)
@@ -137,6 +144,23 @@ def test_transforms_work_under_jit():
 
     @jax.jit
     def grad_through(u):
-        return jax.grad(lambda v: jnp.sum(jnp.stack(list(from_unconstrained(v)))))(u)
+        return jax.grad(lambda v: sum(jnp.sum(leaf) for leaf in from_unconstrained(v)))(u)
 
     assert jnp.all(jnp.isfinite(grad_through(u)))
+
+
+def test_every_search_box_edge_has_a_source():
+    """Box edges define which failures count as real (brief 9), so each needs
+    a source tag -- DATASHEET, LITERATURE, or an explicit UNSOURCED admission.
+    An untagged edge is an unfalsifiable claim about what devices exist.
+    """
+    from imu_diff_sim.params import SEARCH_BOX_PROVENANCE
+
+    assert set(SEARCH_BOX_PROVENANCE) == set(SEARCH_BOX_FACTORS), (
+        "every search-box entry needs a provenance note: missing "
+        f"{sorted(set(SEARCH_BOX_FACTORS) - set(SEARCH_BOX_PROVENANCE))}"
+    )
+    for name, note in SEARCH_BOX_PROVENANCE.items():
+        assert any(t in note for t in ("DATASHEET", "LITERATURE", "MEASURED", "UNSOURCED")), (
+            f"{name}: box provenance must carry a source tag"
+        )

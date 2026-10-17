@@ -30,6 +30,33 @@ def _run(params, n, dt, seed=0):
 # Structure
 # --------------------------------------------------------------------------
 
+def test_initial_bias_returns_the_searched_turn_on_bias():
+    """initial_bias is no longer zero: it returns the searched parameter.
+
+    Nominal turn-on bias is 0.0, so every statistical invariant below is
+    unaffected -- but a non-zero parameter must actually reach the bias state,
+    because it is the dominant bias term at episode timescales.
+    """
+    p = _params(gyroscope_turn_on_bias=jnp.array([1e-3, -2e-3, 3e-3]))
+    b = noise.initial_bias(p)
+    np.testing.assert_allclose(np.asarray(b.gyroscope), [1e-3, -2e-3, 3e-3])
+    np.testing.assert_allclose(np.asarray(noise.initial_bias(bmi270_nominal()).gyroscope), 0.0)
+
+
+def test_turn_on_bias_offsets_the_measurement_for_the_whole_episode():
+    """A constant offset must persist, not decay -- that is the whole point.
+
+    With no noise and no scale error, every sample must read true + bias.
+    Contrast with i.i.d. noise, whose episode mean shrinks as 1/sqrt(N).
+    """
+    bias = jnp.array([1e-3, -2e-3, 3e-3])
+    p = _params(gyroscope_noise_density=0.0, gyroscope_random_walk=0.0,
+                gyroscope_scale_factor=0.0, gyroscope_turn_on_bias=bias)
+    _, out = _run(p, n=200, dt=0.02)
+    np.testing.assert_allclose(np.asarray(out.gyroscope), np.broadcast_to(bias, (200, 3)),
+                               rtol=1e-6, atol=1e-12)
+
+
 def test_shapes_and_finiteness():
     _, out = _run(bmi270_nominal(), n=1000, dt=0.005)
     assert out.gyroscope.shape == (1000, 3)

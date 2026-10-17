@@ -120,35 +120,37 @@ def draw_noise(key: Array, shape: tuple[int, ...] = ()) -> NoiseDraw:
 
 
 def initial_bias(params: ImuParams, key: Array | None = None) -> BiasState:
-    """Bias at the start of an episode. Zero, deliberately.
+    """Bias at the start of an episode: the SEARCHED turn-on bias.
 
-    MODELLING DECISION, open to challenge: the alternative is to draw from the
-    datasheet's turn-on bias repeatability spec, which is more realistic -- a
-    real device does not power on unbiased.
+    Turn-on bias is a deterministic, signed, per-axis parameter rather than a
+    random draw. That distinction is the point. A drawn bias would be nuisance
+    randomness that the adversarial search has to average over; a searched
+    parameter is something the search can target directly, and uniform DR can
+    sample from the same box, so the two methods stay comparable.
 
-    Zero was chosen because turn-on bias is an extra random variable that the
-    adversarial search would see as nuisance noise unless held fixed, and
-    because it is degenerate with the slow thermal bias offset we are NOT
-    modelling (see module note below). Over an Allan trace it is irrelevant:
-    the random walk dominates within a few samples. Over a short sim rollout it
-    is NOT irrelevant, and this is the main place the model understates
-    real-device error.
+    WHY THIS IS NOT ZERO ANY MORE. At an episode length of 20 s the turn-on
+    bias bound is 60-190x the within-episode random-walk drift, making it the
+    dominant bias term by a wide margin. Returning zero removed the single
+    largest bias error source from the model, and with it the channel most
+    likely to produce a real failure: a constant offset integrates into
+    heading and attitude, whereas zero-mean per-step noise averages down as
+    1/sqrt(N) over the episode.
 
-    `key` is accepted and ignored so that switching to a drawn turn-on bias
-    later does not change any call site.
+    It also subsumes slow thermal drift. Over a seconds-long rollout a
+    temperature-driven bias is indistinguishable from a constant offset, so
+    one searched constant stands in for both and no separate thermal model is
+    needed. (Temperature still matters elsewhere: a thermal ramp during a
+    static Allan log fakes a random-walk slope at long tau, and sensitivity
+    TCO argues for wider bounds than the room-temperature spec.)
 
-    WHY NO TEMPERATURE TERM ANYWHERE IN THIS MODEL: locomotion rollouts last
-    seconds; thermal bias drift acts over minutes to hours. Across one episode
-    a temperature-driven bias is indistinguishable from a constant offset --
-    i.e. from this function's return value. Adding a thermal model would add a
-    parameter the search cannot identify separately from one it already has.
-    Temperature still matters twice elsewhere: a thermal ramp during a static
-    log fakes a random-walk slope at long tau, and sensitivity TCS argues for a
-    wider SCALE_FACTOR_BOUND.
+    `key` is accepted and ignored, so switching to a drawn turn-on bias later
+    would not change any call site.
     """
     del key  # see docstring
-    zero = jnp.zeros(3)
-    return BiasState(gyroscope=zero, accelerometer=zero)
+    return BiasState(
+        gyroscope=jnp.broadcast_to(params.gyroscope_turn_on_bias, (3,)),
+        accelerometer=jnp.broadcast_to(params.accelerometer_turn_on_bias, (3,)),
+    )
 
 
 def step(
