@@ -333,6 +333,48 @@ budget that actually threatens this policy is **mechanical and
 estimator-side**. Misalignment should be added as its own OFAT factor with a
 defensible physical bound before any of this is published.
 
+### Rough terrain: the insensitivity generalises
+
+`Go1JoystickRoughTerrain` was run as a controlled comparison -- identical
+class, observation, DR, budget and episode length, only the terrain XML
+differs. Both policies trained to comparable reward (29.62 rough vs 30.01
+flat), so any difference is terrain and not a weaker policy.
+
+Predicted in advance: gyro margins shrink, because joint-encoder redundancy
+depends on predictable ground. **Wrong again.**
+
+| factor | flat knee | rough knee |
+|---|---|---|
+| gyro white noise | 0.5012 rad/s | 0.5012 rad/s |
+| gyro persistent bias | none in range | none in range |
+| gyro scale error | none in range | none in range |
+| gravity tilt | 0.1995 | 0.1995 |
+| IMU latency | 2 steps | **1 step** |
+
+Only latency moved, by one control step. Every gyro channel is unchanged to
+the resolution of the sweep. The rough policy does fall 17% of the time
+unperturbed (baseline survival 0.95 against 1.00 on flat), and that 17% floor
+is flat across every injected magnitude on all three gyro channels -- the
+injected error adds nothing to it.
+
+This is the strongest form of the negative result. The insensitivity is not
+an artifact of the easiest available task: it survives the obvious
+generalisation test. Figures: `ofat-all-factors-rough.png`,
+`ofat-white-vs-bias-rough.png`.
+
+It also weakens the explanation offered above. If joint-encoder redundancy
+were the mechanism, unpredictable ground should have degraded it. It did not,
+so either the redundancy survives rough terrain better than argued, or
+something else accounts for the insensitivity. Recorded as unresolved rather
+than patched over.
+
+**Prediction record so far: 2 of 5 on the factor sweep, plus three
+consecutive wrong directional calls** (persistent bias would decide it;
+gravity tilt would not fail; rough terrain would shrink the gyro margins).
+That is worth stating in the write-up: on this system the author's physical
+intuition has been a poor guide, which is itself an argument for measuring
+sensitivity before building a search.
+
 ### How the field sees it
 
 Partially consistent, not settled, and nobody appears to have published this
