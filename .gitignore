@@ -18,3 +18,7 @@ reports/figures/*.png
 
 *.egg-info/
 IMU_PROJECT_BRIEF.md
+
+# Result figures and the data behind them are tracked, unlike scratch plots.
+!reports/figures/ofat-*.png
+!runs/ofat_*.npz
