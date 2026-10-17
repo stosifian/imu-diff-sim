@@ -42,6 +42,14 @@ BMI270_GYRO_WHITE_STD_50HZ = 1.116e-4 / (0.02 ** 0.5)   # 7.89e-4 rad/s
 PLAYGROUND_GYRO_DR_STD = 0.2 / (3.0 ** 0.5)             # 0.1155 rad/s
 PLAYGROUND_GRAVITY_DR_HALFWIDTH = 0.05
 
+#: Datasheet turn-on bias bounds -- the reference lines that matter most, since
+#: this is the only channel where a physically plausible value EXCEEDS what the
+#: policy was trained against. Playground's DR is zero-mean i.i.d., so its
+#: persistent component over an N-step episode is only DR_std/sqrt(N).
+BMI270_GYRO_TURN_ON_BIAS_BOUND = 0.5 * 3.141592653589793 / 180.0   # 8.73e-3 rad/s
+BMI270_ACCEL_TURN_ON_BIAS_TILT = 20e-3 * 9.80665 / 9.80665          # 0.02 (gravity units)
+PLAYGROUND_GYRO_DR_EPISODE_MEAN_500 = PLAYGROUND_GYRO_DR_STD / (500 ** 0.5)
+
 
 def inject_white(obs: Array, eps: Array, sigma: float, sl: slice = GYRO) -> Array:
     """Zero-mean i.i.d. noise, redrawn every step. Mimics the env's own DR.
