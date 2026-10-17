@@ -422,6 +422,74 @@ habits:
   until marginal episodes flip. Run-to-run variation near zero fall rate is
   ~2/64 episodes, on top of sampling error.
 
+## 6b. Why the mismatch, and what the thesis is actually aimed at
+
+### It is not sensor fusion
+
+Worth stating precisely, because it is the obvious wrong explanation. There
+is no fusion anywhere in this setup. The policy is a memoryless MLP -- one
+timestep in, actions out, no EKF, no complementary filter, no history buffer
+-- so it cannot integrate or filter the IMU over time even in principle. And
+in simulation the projected-gravity input is ground truth from
+`get_gravity(data)`, not an estimator output. On real hardware it would be
+fused upstream, but that is not what was measured here.
+
+What is actually happening is **instantaneous redundancy**: within a single
+timestep, joint positions, joint velocities, contact state and the previous
+action already constrain what the body is doing, so the network never needed
+to lean on the gyro. (With the caveat from the rough-terrain run that this
+explanation is weaker than it looks -- unpredictable ground should have
+degraded that redundancy and did not.)
+
+### Allan variance characterises integration; this task does not integrate
+
+This is the mismatch in one line. Averaging time tau *is* the independent
+variable of an Allan curve: noise density, bias instability and random walk
+are all statements about what happens when a rate signal is integrated over
+seconds to hours. That is the right characterisation for inertial
+navigation, which is what it was built for.
+
+A joystick locomotion policy integrates nothing. It is a feedback controller
+acting instant to instant, re-grounded by contact every step. The long-tau
+half of the Allan curve describes a failure mode this task structurally
+cannot have.
+
+**We characterised the sensor for integration and then tested it on a system
+that does not integrate.** Every measured result follows from that: the gyro
+channels are flat because nothing accumulates them; the channels that bite
+are an instantaneous attitude reference with no redundancy (gravity) and a
+control-loop stability property (latency), neither of which is a noise
+parameter.
+
+### Where the thesis should hold
+
+Hypotheses, following from the mechanism rather than from data -- none of
+these were measured here:
+
+- **Anything that dead-reckons.** Visual-inertial odometry, inertial
+  odometry, navigation, long-horizon position tracking. Gyro bias integrates
+  into unbounded heading drift. This is precisely the regime Allan
+  parameters exist to describe.
+- **Flight phases and aerial robots.** No contact, so leg kinematics provide
+  nothing and the IMU becomes the only attitude reference -- the same
+  no-redundancy mechanism that made gravity tilt the one channel that bit
+  here.
+- **Recurrent policies.** An LSTM accumulating IMU over time could be *more*
+  bias-sensitive than this MLP, not less: memory is what turns a constant
+  offset into growing error.
+- **Humanoids.** Higher centre of mass, less passive stability, faster
+  divergence from an attitude error.
+- **Estimator-in-the-loop systems**, where the policy consumes filter output
+  and the failure mode is filter divergence rather than sensor noise.
+
+The brief's underlying thesis -- that differentiable sensor physics enables
+better policy edge-case discovery -- is not refuted by any of this. What is
+refuted is its pairing with this system class. Proprioceptive legged
+locomotion is close to the worst case for the thesis; a VIO or navigation
+stack would be close to the best. That redirection, derived from a
+measurement rather than from argument, is the most useful thing the project
+produced.
+
 ## 7. Open questions that could still sink it
 
 *Updated after the OFAT result. Two of these are now answered.*
