@@ -119,10 +119,13 @@ def test_C2_cross_check_against_main_allan_module():
     with jax.enable_x64(True):
         x = np.asarray(synth.synth_trace(jax.random.PRNGKey(2), 200_000, selftest.DT,
                                          synth.NoiseCoeffs(1e-3, 2e-4, 2e-5)))
-    try:
-        taus_a, adev_a, _ = allan.overlapping_allan_deviation(x, selftest.DT)
-    except NotImplementedError:
-        pytest.skip("imu_diff_sim.allan not implemented yet")
+    # No try/except here any more. The guard that used to skip on
+    # NotImplementedError dated from when allan.py was still stubs, and it is
+    # now a hazard: this is the ONE test where the two implementations meet,
+    # and a swallowed exception turns it into a silent skip. It did exactly
+    # that on Colab (63 passed, 1 skipped) while passing locally, hiding
+    # whatever environment difference caused it. Fail loudly instead.
+    taus_a, adev_a, _ = allan.overlapping_allan_deviation(x, selftest.DT)
     ms = np.round(taus_a / selftest.DT).astype(np.int64)
     taus_j, adev_j, _ = adev_jax.overlapping_adev(x, selftest.DT, ms)
     np.testing.assert_allclose(taus_j, taus_a, rtol=1e-12)
