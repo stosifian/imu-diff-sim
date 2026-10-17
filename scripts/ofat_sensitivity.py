@@ -269,7 +269,11 @@ def main() -> int:
               f"{'fall rate':>10} {'survived':>9}")
         for m in mags:
             out = batched(keys, fid, jnp.asarray(m))
+            # Keep the spread, not just the mean. Without it a plot cannot
+            # distinguish a real knee from a two-episode fluctuation, and a
+            # noise excursion pointing the convenient way reads as a finding.
             row = {k: float(jnp.mean(v)) for k, v in out.items()}
+            row.update({f"{k}_sd": float(jnp.std(v)) for k, v in out.items()})
             rows.append(row)
             print(f"  {m:>12.4g} {row['return']:>10.2f} {row['tracking_mse']:>11.4f} "
                   f"{row['fell']:>10.2f} {row['survived']:>9.2f}")

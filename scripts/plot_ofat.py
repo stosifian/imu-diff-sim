@@ -69,6 +69,22 @@ BMI270_TILT = 20e-3                              # rad, from +-20 mg zero-g offs
 DR_WHITE = 0.2 / np.sqrt(3.0)                    # 0.1155 rad/s
 
 
+
+def wilson(p: np.ndarray, n: int, z: float = 1.96):
+    """Wilson score interval for a proportion.
+
+    Used instead of the normal approximation because fall rate sits at or
+    near zero over most of every sweep, where the normal interval is
+    degenerate (zero width at p=0) and would imply certainty we do not have.
+    A fall rate of 0/64 is consistent with a true rate up to ~5.6%.
+    """
+    p = np.asarray(p, dtype=float)
+    d = 1.0 + z * z / n
+    centre = (p + z * z / (2 * n)) / d
+    half = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return np.clip(centre - half, 0, 1), np.clip(centre + half, 0, 1)
+
+
 def _style(ax):
     ax.set_facecolor(SURFACE)
     ax.grid(True, which="major", color=GRID, lw=0.8, zorder=0)
@@ -98,6 +114,11 @@ def headline(d, out: Path, dr_persistent: float) -> None:
 
     for factor, color in (("gyro_white", BLUE), ("gyro_bias", ORANGE)):
         m, r = d[f"{factor}__magnitudes"], d[f"{factor}__return"] / base
+        if f"{factor}__return_sd" in d:
+            n_ep = int(d["episodes"]) if "episodes" in d else 64
+            sem = d[f"{factor}__return_sd"] / np.sqrt(n_ep) / base
+            ax.fill_between(m, r - sem, r + sem, color=color, alpha=0.16,
+                            lw=0, zorder=2)
         ax.plot(m, r, color=color, lw=2.0, marker="o", ms=5,
                 mec=SURFACE, mew=1.5, zorder=4,
                 label=FACTOR_LABEL[factor])
@@ -137,6 +158,7 @@ def grid_figure(d, out: Path) -> None:
     different scales never share an axis."""
     factors = [f for f in FACTOR_LABEL if f"{f}__magnitudes" in d]
     base = float(d["baseline__return"])
+    n_ep = int(d["episodes"]) if "episodes" in d else 64
     n = len(factors)
     fig, axes = plt.subplots(2, n, figsize=(3.1 * n, 7.4),
                              constrained_layout=True)
@@ -151,7 +173,12 @@ def grid_figure(d, out: Path) -> None:
 
         ax = axes[0, j]
         _style(ax)
-        ax.plot(m, d[f"{factor}__return"] / base, color=BLUE, lw=2.0,
+        r = d[f"{factor}__return"] / base
+        if f"{factor}__return_sd" in d:
+            sem = d[f"{factor}__return_sd"] / np.sqrt(n_ep) / base
+            ax.fill_between(m, r - sem, r + sem, color=BLUE, alpha=0.16,
+                            lw=0, zorder=2)
+        ax.plot(m, r, color=BLUE, lw=2.0,
                 marker="o", ms=5, mec=SURFACE, mew=1.5, zorder=4)
         ax.axhline(1.0, color=GRID, lw=1.0, zorder=1)
         ax.set_ylim(-0.05, 1.25)
@@ -165,7 +192,10 @@ def grid_figure(d, out: Path) -> None:
 
         ax2 = axes[1, j]
         _style(ax2)
-        ax2.plot(m, d[f"{factor}__fell"], color=ORANGE, lw=2.0,
+        fell = d[f"{factor}__fell"]
+        lo, hi = wilson(fell, n_ep)
+        ax2.fill_between(m, lo, hi, color=ORANGE, alpha=0.16, lw=0, zorder=2)
+        ax2.plot(m, fell, color=ORANGE, lw=2.0,
                  marker="o", ms=5, mec=SURFACE, mew=1.5, zorder=4)
         ax2.set_ylim(-0.05, 1.05)
         ax2.set_xlabel(f"magnitude [{FACTOR_UNIT[factor]}]",
@@ -187,7 +217,8 @@ def grid_figure(d, out: Path) -> None:
              f"{int(d['episodes'])} episodes x {int(d['horizon'])} steps  |  "
              f"baseline return {base:.1f}, fall rate "
              f"{float(d['baseline__fell']):.2f}, survival "
-             f"{float(d['baseline__survived']):.2f}",
+             f"{float(d['baseline__survived']):.2f}"
+             f"   |   bands: +-1 SEM (return), Wilson 95% (fall rate)",
              color=INK_2, fontsize=9, va="top")
     fig.savefig(out, dpi=170, facecolor=SURFACE)
     print(f"  {out}")

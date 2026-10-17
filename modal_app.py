@@ -136,19 +136,20 @@ def smoke() -> int:
 
 
 @app.function(**COMMON)
-def train(timesteps: int = 60_000_000, noise_level: float = 0.0,
-          name: str = "go1_clean") -> int:
+def train(timesteps: int = 200_000_000, noise_level: float = 0.0,
+          name: str = "go1_clean", env: str = "Go1JoystickFlatTerrain") -> int:
     return _run(
-        f"python scripts/train_go1.py --timesteps {timesteps} "
+        f"python scripts/train_go1.py --env {env} --timesteps {timesteps} "
         f"--noise-level {noise_level} --out /runs/{name}.pkl"
     )
 
 
 @app.function(**COMMON)
 def ofat(policy: str = "/runs/go1_clean.pkl", episodes: int = 64,
-         horizon: int = 500, points: int = 9) -> int:
+         horizon: int = 1000, points: int = 9,
+         env: str = "Go1JoystickFlatTerrain") -> int:
     return _run(
-        f"python scripts/ofat_sensitivity.py --policy {policy} "
+        f"python scripts/ofat_sensitivity.py --env {env} --policy {policy} "
         f"--episodes {episodes} --horizon {horizon} --points {points} "
         f"--out /runs/ofat_{policy.split('/')[-1].replace('.pkl','')}.npz"
     )
