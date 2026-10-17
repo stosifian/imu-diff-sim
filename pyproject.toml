@@ -1,0 +1,29 @@
+[project]
+name = "imu-diff-sim"
+version = "0.1.0"
+description = "Differentiable IMU noise model for policy edge-case discovery"
+requires-python = ">=3.10"
+dependencies = [
+    "jax>=0.4.30",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "matplotlib>=3.8",
+    "pyyaml>=6.0",
+    "scikit-learn>=1.4",
+]
+
+[project.optional-dependencies]
+sim = ["brax>=0.10", "mujoco-mjx>=3.2"]
+dev = ["pytest>=8.0", "allantools>=2024.6"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+markers = ["slow: long-running (multi-million-sample Allan traces)"]
