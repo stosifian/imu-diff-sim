@@ -203,6 +203,14 @@ episode, so the entire +-0.2 rad/s DR contributes only ~5e-3 rad/s of
 sustained error -- while a constant offset does not average down at all and
 integrates into heading and attitude.
 
+**Retracted by section 6.** The 2.4x ratio is arithmetically correct and the
+turn-on-bias parameterisation was the right modelling change, but the
+inference drawn from it -- that this would be the channel where failures
+live -- is wrong. Measured, persistent bias has no knee anywhere in the
+tested range, and tracks white noise almost exactly. The ratio describes the
+error's magnitude relative to training; it says nothing about whether the
+policy is sensitive to it, and this policy is not.
+
 Other findings acted on: noise-density provenance corrected (the datasheet
 density is one-sided, no sqrt(2); the Luxonis nominal matches **normal** mode
 at 1.23e-4, not performance mode at 8.64e-5), scale-factor bounds split per
@@ -210,34 +218,138 @@ sensor (gyro +-2% no-CRT, accel +-0.4% -- a shared 2% made the accel box 5x
 the datasheet), and every search-box edge tagged with a source, with the
 random-walk box explicitly marked UNSOURCED.
 
-## 6. Where the claim stands now
+## 6. The OFAT result: the claim does not survive measurement
 
-The original claim is not testable as written against a stock Go1 policy. What
-replaced it is sharper and better supported:
-
-> Standard domain randomization over-covers sensor white noise by two orders
-> of magnitude while under-covering persistent, structured errors. Failure
-> modes therefore live in the error modes DR omits, not the ones it
-> generously covers.
-
-The gating measurement is an **OFAT sensitivity sweep**: inject idealised
+The gating measurement was an **OFAT sensitivity sweep**: inject idealised
 error modes one at a time -- white noise, persistent bias, scale factor,
 gravity tilt, latency -- find where each knees, and compare against what a
 real BMI270 produces. This inverts the original logic. Instead of modelling
 the sensor and then searching for failures, find the failure thresholds first
 and ask whether any real device can reach them.
 
-Predictions recorded before running, so being wrong is informative:
+Predictions were recorded before running, so being wrong would be informative.
+They were wrong.
 
-| factor | predicted knee | BMI270 | call |
+| factor | predicted | measured | verdict |
 |---|---|---|---|
-| gyro white noise | 0.1-0.2 rad/s | 7.9e-4 | no failure, ~150x margin |
-| gyro persistent bias | 5e-3 - 5e-2 rad/s | 8.7e-3 | **marginal -- decides it** |
-| gyro scale factor | 5-10% | +-2% | possible; persistent, scales with rate |
-| gravity tilt | 0.05-0.1 | 0.02 | no failure, below DR |
-| latency | 1-2 steps | ~0.3 step | likely most sensitive |
+| gyro white noise | no failure, ~150x margin | knee 0.50 rad/s, **635x** | right |
+| gyro persistent bias | **marginal -- decides it** | no knee in range, 57x | **wrong** |
+| gyro scale factor | possible | 50% error costs 3% of return | **wrong** |
+| gravity tilt | no failure, below DR | knee 0.20, 91% falls at 0.5 | **wrong** |
+| latency | likely most sensitive | knee 2 steps, collapse by 3 | right |
+
+Two of five. Setup: 64 episodes x 1000 steps against `/runs/go1_clean.pkl`
+(206M steps, reward 30.0). Baseline return 32.18, fall rate 0.00, survival
+1.00. Figures: `reports/figures/ofat-white-vs-bias.png`,
+`ofat-all-factors.png`.
+
+### The structural hypothesis is refuted
+
+After the 146x finding, the project's remaining reason to exist was the
+*structural* argument: domain randomization is zero-mean i.i.d. per step, so
+it averages down as 1/sqrt(N) over an episode, while a persistent bias does
+not average down at all and integrates into heading. Bias should therefore
+break the policy at far lower magnitude than white noise.
+
+It does not. At equal magnitude the two curves sit on top of each other, and
+bias is if anything slightly *better* tolerated (0.91 vs 0.82 return at
+0.5 rad/s). The white-vs-bias figure was built to display a divergence that
+is not there.
+
+### Nothing plausible breaks this policy
+
+Margins between each channel's knee and the BMI270 datasheet value: gyro
+white 635x, persistent bias 57x with no knee at all, scale 25x with no knee,
+gravity tilt ~10x, latency ~7x. The original claim cannot be tested here
+because there are no failures inside the physical box for **any** search
+method to find -- gradient-informed or otherwise. The week-three three-arm
+comparison would have been vacuous, and that is now measured rather than
+argued.
+
+### Two findings that are more interesting than the null
+
+**The robustness is not domain randomization.** This policy was trained with
+`noise_config.level = 0.0` -- no observation noise whatsoever -- and still
+tolerates 635x the BMI270 gyro noise. So the insensitivity does not come from
+DR hardening. It comes from the observation carrying redundant state: the
+gyro is 3 of 48 dimensions against 24 of joint encoders, plus contact and the
+command, so body motion can be reconstructed from leg kinematics. That is a
+stronger statement than the 146x framing.
+
+**The two channels that bind are the ones a datasheet does not describe.**
+Gravity tilt is the only absolute attitude reference in the observation --
+nothing else tells the robot which way is down, so it has no redundancy to
+fall back on. Latency is not an information problem at all; it destabilises
+the control loop regardless of signal quality. Both live in the **state
+estimator**, not in a noise spec. The raw-sensor-versus-estimator concern
+recorded in section 7 as a worry has become a measurement.
+
+So the honest formulation is not "policies are insensitive to IMUs" but:
+
+> IMU *rate* information is redundant on this task; IMU-derived *attitude*
+> and *timing* are not. A datasheet-parameterised noise model therefore
+> targets the one part of the IMU error budget this policy does not care
+> about.
+
+### How the field sees it
+
+Partially consistent, not settled, and nobody appears to have published this
+as a clean result. Latency modelling is described as mandatory for transfer,
+which matches. One ablation reports a joint-state noise crossover at
+sigma ~ 0.2 rad, the same order as our gyro knee, so the magnitudes are not
+anomalous. But a parkour study found removing observation noise broke
+obstacle traversal, and a dynamics-randomization case study found transfer
+worked with no randomization at all. The evidence is task-dependent.
+
+### The caveat that most threatens this
+
+`Go1JoystickFlatTerrain` is the easiest locomotion task available: flat
+ground, no perturbations, no obstacles. Joint-encoder redundancy is strongest
+exactly when the terrain is predictable; on rough ground, leg kinematics stop
+being a reliable proxy for body attitude. The parkour counterexample is
+precisely a harder task where noise did matter.
+
+`Go1JoystickRoughTerrain` is therefore running as a controlled comparison:
+identical class, observation, DR, budget and episode length -- only the
+terrain XML differs. Prediction, again recorded in advance: the gyro margins
+shrink. If all five curves stay as flat as on flat terrain, redundancy was
+not the mechanism and the insensitivity needs a different explanation.
+
+### Measurement hygiene learned the hard way
+
+Two defects were caught only by luck, and both are now gates rather than
+habits:
+
+- **The first full sweep was invalid.** brax trains this task with
+  `normalize_observations=True`, and the sweep built its network with the
+  default identity preprocessor, feeding the policy raw observations. It fell
+  within 3 s of a 20 s episode at *every* magnitude including zero, and every
+  row looked alike. It would have been reported as "only latency matters."
+  Caught by reading the zero-perturbation row. The sweep now refuses to run
+  if the unperturbed policy cannot stand.
+- **The first figures carried no uncertainty.** A fall-rate bump of 2
+  episodes in 64 was drawn identically to a real knee; it was noticed only
+  because it happened to be non-monotonic. A noise excursion pointing the
+  convenient way would have read as a finding. Fall rate now carries Wilson
+  95% intervals, return carries +-1 SEM.
+- **The sweep is not bit-reproducible on GPU.** With identical seeds, that
+  same point has read 0.00, 0.031, 0.00 across three runs: floating-point
+  reduction order is not fixed and contact dynamics amplify ~1e-7 differences
+  until marginal episodes flip. Run-to-run variation near zero fall rate is
+  ~2/64 episodes, on top of sampling error.
 
 ## 7. Open questions that could still sink it
+
+*Updated after the OFAT result. Two of these are now answered.*
+
+- **RESOLVED, against us: raw sensor vs state estimator.** This was recorded
+  as a worry that a datasheet-parameterised raw-sensor model might target a
+  quantity the policy never sees. The sweep confirms it. The two channels
+  that bind -- gravity-vector error and latency -- are estimator properties,
+  not datasheet noise parameters.
+- **RESOLVED: is the task sensitive at all?** No, not within any plausible
+  box, and not even for a policy trained without observation noise.
+
 
 - **Bench noise vs installed noise.** The 146x compares DR against *datasheet*
   noise, measured on a desk. A gyro on a trotting quadruped sees structural
