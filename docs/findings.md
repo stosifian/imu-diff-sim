@@ -87,9 +87,12 @@ roughly how fast the body is rotating; it does not need that number accurate.
 rough ground where it is not. Predicted from the mechanism before running,
 and confirmed.
 
-**For attitude, wrong beats absent.** Tilting gravity 11 deg costs 42 % while
-removing it costs 6 %. This matters because every in-field drift mechanism
-produces a *wrong* value, not a missing one.
+**For attitude, wrong information is worse than none.** Tilting gravity
+11 deg costs 42 % of return; removing it entirely costs 6 %. A misleading
+"down" actively steers the policy wrong, whereas a missing one leaves it on
+the upright prior, which is close to correct on flat ground. That ordering
+matters because every in-field drift mechanism in section 4 produces a wrong
+value, not a missing one -- so the realistic failure is the expensive kind.
 
 ## 4. The binding error budget is mechanical, not a datasheet spec
 

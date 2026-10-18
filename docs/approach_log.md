@@ -478,11 +478,13 @@ than either alone:
 - **The gravity vector is required only when the upright prior fails.** On
   flat ground a constant is nearly as good. On rough ground it is the
   difference between walking and falling.
-- **Wrong beats absent, for attitude.** Tilting gravity 11 deg costs 42 % on
-  flat terrain while removing it costs 6 %. Every in-field drift mechanism
-  listed above -- temperature, mounting, package stress -- produces a wrong
-  value rather than a missing one, which is why that list is the one that
-  matters.
+- **For attitude, wrong information is worse than none.** Tilting gravity
+  11 deg costs 42 % on flat terrain; removing it costs 6 %. A misleading
+  "down" steers the policy actively wrong, while a missing one leaves it on
+  the upright prior, which is nearly correct on flat ground. Every in-field
+  drift mechanism listed above -- temperature, mounting, package stress --
+  produces a wrong value rather than a missing one, so the realistic failure
+  is the expensive one.
 
 ### How the field sees it
 
