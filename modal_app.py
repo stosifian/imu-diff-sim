@@ -156,6 +156,17 @@ def ofat(policy: str = "/runs/go1_clean.pkl", episodes: int = 64,
 
 
 @app.function(**COMMON)
+def search(policy: str = "/runs/go1_clean.pkl", budget: int = 240,
+           episodes: int = 16, horizon: int = 400,
+           env: str = "Go1JoystickFlatTerrain") -> int:
+    return _run(
+        f"python scripts/search_misalign.py --env {env} --policy {policy} "
+        f"--budget {budget} --episodes {episodes} --horizon {horizon} "
+        f"--out /runs/search_misalign.npz"
+    )
+
+
+@app.function(**COMMON)
 def tests() -> int:
     return _run("python -m pytest -q --no-header")
 

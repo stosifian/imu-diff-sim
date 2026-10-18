@@ -599,6 +599,52 @@ stack would be close to the best. That redirection, derived from a
 measurement rather than from argument, is the most useful thing the project
 produced.
 
+## 6c. The search, finally: uniform DR vs CEM over misalignment
+
+With the gradient arm ruled out, what remains is the honest weaker question:
+does an **adaptive gradient-free** method find the failure boundary more
+efficiently than uniform sampling? Equal budget (240 evaluations per arm,
+16 episodes x 400 steps each), common random numbers, failure threshold
+fixed in advance at 10 % of baseline return.
+
+| | uniform DR | CEM |
+|---|---|---|
+| failures found | 14 / 240 (5.8 %) | **182 / 240 (75.8 %)** |
+| worst return found | 10.36 | 10.20 |
+| baseline | 12.34 | 12.34 |
+
+**Adaptive search wins decisively on discovery rate and not at all on
+severity.** CEM finds 13x more failing configurations at the same budget,
+but the worst configuration it finds is 1.5 % worse than what uniform
+stumbled onto by luck. It finds *more* failures, not *worse* ones.
+
+**And it collapsed to a single mode.** Sigma fell from 2.82 deg to 0.07 deg
+by generation 9, with the mean locked at |mu| ~ 7.0 deg. The brief
+anticipated exactly this case: "If it converges to the same mode from every
+initialization and only random sampling finds diversity, report that." One
+mode, found efficiently, with no diversity -- which is the opposite of what
+the money plot was supposed to show.
+
+Figure: `reports/figures/search-misalign.png`.
+
+**A design consequence worth naming.** The box corner is 8.66 deg RSS, while
+the OFAT put the dramatic knee at 11.3 deg. So the physically defensible
+bound sits *below* the catastrophic regime: the worst thing inside the box
+costs 17 % of return, not 90 %. That is the correct physical choice -- a
+failure at an implausible misalignment is not a finding, per brief 9 -- but
+it means the entire search operates in shallow degradation, which is part of
+why severity barely separates the arms.
+
+### What the search result does and does not support
+
+- **Supported:** on a 3-parameter physically-bounded space with a shallow
+  failure surface, an adaptive gradient-free method concentrates budget on
+  the failure region far better than uniform sampling.
+- **Not supported:** that it finds worse failures, or more diverse ones. It
+  found one mode and exhausted its budget refining it.
+- **Not tested:** the brief's actual claim. Gradient-informed search was
+  ruled out by measurement, not compared.
+
 ## 7. Open questions that could still sink it
 
 *Updated after the OFAT result. Two of these are now answered.*
