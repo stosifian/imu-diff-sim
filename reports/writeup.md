@@ -15,6 +15,15 @@ Figures: reports/figures/.
 -->
 
 ## 1. The question and the short answer
+<!-- WRITE: Open with the table, then say in two or three sentences what you
+set out to test and what the measurement said instead. State once that you
+come from sensor physics (magnetic position sensing for camera actuators) and
+that this was your first robotics-simulation project -- then let that do its
+work. Do not hedge or apologise; the cross-domain angle is why you asked
+whether the error budget was the right one at all, and that question is what
+produced the result. End the section by telling the reader what they will get:
+a measured account of why a physics-parameterized sensor model finds nothing
+on this class of system, and where it should be aimed instead. -->
 <!-- ~250 words. Verdict in the first paragraph. Do not make the reader earn
 it. Open with the table; prose after. -->
 
@@ -35,6 +44,15 @@ Do not apologise for it being a first robotics project. -->
 ---
 
 ## 2. Why this looked like a good bet
+<!-- WRITE: Make the argument a sensor engineer would make. Domain
+randomization in these pipelines is not a sensor model -- it is regularization
+noise, and nobody derived +-0.2 rad/s from a datasheet. Show the 146x gap and
+the seven-robots-one-constant detail, because together they establish the
+value is a convention rather than a calibration. Then state the hypothesis
+that follows and that you genuinely believed: if DR is not physics, a
+physics-parameterized search should find failures it misses. Include the
+caveat that per-episode bias DR exists in the wider literature -- putting it
+here, before the results, is what makes the rest credible. -->
 <!-- ~400 words. The motivation, argued FROM sensor physics. -->
 
 <!-- KEY NUMBERS
@@ -52,6 +70,17 @@ Do not apologise for it being a first robotics project. -->
 ---
 
 ## 3. What I built
+<!-- WRITE: Enough for a reader to trust the instrument, no more. The model
+follows Kalibr conventions so the parameters map onto how the field talks; it
+is reparameterized so gradients reach the distribution parameters. Emphasise
+what validation actually established -- self-consistency plus an independent
+cross-check -- and be explicit that recovering your own inputs is not
+validation against reality. The EuRoC rejection is worth a short paragraph: it
+shows you checked whether your data met the method's assumptions instead of
+running the method anyway, and the 150x wrong answer it produces when forced
+is a memorable illustration. Mention the 11-12 % per-realization scatter on
+random walk, because it bounds what any single real log could ever tell
+you. -->
 <!-- ~500 words. Credibility section. Concrete, not exhaustive. -->
 
 <!-- KEY NUMBERS
@@ -76,9 +105,23 @@ Do not apologise for it being a first robotics project. -->
 ---
 
 ## 4. What I measured
+<!-- WRITE: Let the figures carry the argument and use prose only to connect
+them. Go in the order the work actually went, because each result motivated
+the next: nothing fails in the noise space, so test whether that is an artifact
+of easy terrain; it is not, so test whether the channel is used at all; it is,
+which inverts the story; then the gradients, then the search. Resist
+summarising each subsection -- state the number, say what it rules out, move
+on. The ablation reversal is the one place to slow down. -->
 <!-- ~800 words. Figures carry this; prose connects them. -->
 
 ### 4.1 Nothing in the noise space breaks it
+<!-- WRITE: Lead with the margins, since 635x is the kind of number that
+settles an argument. Then spend most of the space on the refuted hypothesis:
+you expected persistent bias to break the policy where i.i.d. noise did not,
+because only the former survives 1/sqrt(N) averaging over an episode. Show the
+two curves lying on top of each other. Note that this policy trained with no
+observation noise at all, which rules out the obvious explanation that DR
+hardening caused the robustness. -->
 <!-- Figures: ofat-all-factors.png, ofat-white-vs-bias.png
   64 episodes x 1000 steps. Baseline return 32.18, fall 0.00, survival 1.00.
   gyro white noise    knee 0.50 rad/s      635x BMI270
@@ -94,6 +137,12 @@ Do not apologise for it being a first robotics project. -->
 -->
 
 ### 4.2 It generalizes to rough terrain
+<!-- WRITE: Short. Say why rough terrain was the right generalization test --
+joint-encoder redundancy should depend on predictable ground -- and that you
+predicted the gyro margins would shrink. They did not move. Note the controls
+that make it a clean comparison (same class, observation, DR, budget, episode
+length; comparable final reward) so a reader cannot attribute the null to a
+weaker policy. -->
 <!-- Figure: ofat-all-factors-rough.png
   Identical class, observation, DR, budget, episode length; only terrain XML
   differs. Rewards comparable (29.62 vs 30.01), so not a weaker policy.
@@ -102,6 +151,16 @@ Do not apologise for it being a first robotics project. -->
 -->
 
 ### 4.3 Corruption-insensitive is not unused
+<!-- WRITE: The most quotable result; give it room. The distinction is that
+every sweep before this one CORRUPTED the IMU rather than removing it, and a
+flat response to corruption means robustness, not that the channel is unused.
+Removing the gyro costs 70 % of return. Removing gravity costs 6 % on flat
+ground and 66 % on rough -- and say that you predicted that gap from the
+mechanism (the ablation substitutes nominal upright, which is nearly correct
+on flat ground and wrong on rough) before running it. Finish with the
+asymmetry that matters for the rest of the piece: a wrong attitude estimate is
+far more expensive than a missing one, and in-field drift produces wrong
+values, not missing ones. -->
 <!-- The most quotable result. Give it the subhead.
   full removal      flat return   flat fall   rough return   rough fall
   gyro              9.86 (-70%)   0.52        10.42 (-67%)   0.41
@@ -115,6 +174,14 @@ Do not apologise for it being a first robotics project. -->
 -->
 
 ### 4.4 The gradients don't work
+<!-- WRITE: State the criterion was fixed in week 1, before any of this, then
+give the table. The useful framing is that gradients do not explode -- ||g||
+actually falls with horizon -- they decorrelate, which is the chaotic-landscape
+signature rather than numerical blow-up. H=10 is 0.2 s and a tilt-induced fall
+needs far longer, so the usable horizon and the phenomenon never overlap.
+Report that smoothing was the planned mitigation and that it recovered no
+signal. Worth one line that the Warp backend supports no reverse-mode AD at
+all, since anyone rebuilding this will hit it. -->
 <!-- H     AD vs finite diff   sign stability
      10    1.7 %               0.78
      25    78 %                0.78
@@ -130,6 +197,13 @@ Do not apologise for it being a first robotics project. -->
 -->
 
 ### 4.5 The search that remained
+<!-- WRITE: Be explicit that this is the weaker question the claim degrades to
+once gradients are gone, and that the gradient arm was ruled out by
+measurement rather than skipped. Give the fairness controls (equal budget,
+common random numbers, threshold fixed in advance) before the result, because
+that is what makes 13x believable. Then be honest about what it does not show:
+the worst failure is 1.5 % worse, and CEM collapsed to a single mode. The
+brief asked that this exact case be reported if it happened, so say so. -->
 <!-- Figure: search-misalign.png
   240 evaluations per arm, common random numbers, 10 % failure threshold
   fixed in advance, +-5 deg/axis box. Baseline 12.34 (400-step horizon).
@@ -144,6 +218,14 @@ Do not apologise for it being a first robotics project. -->
 ---
 
 ## 5. Why it failed: Allan variance characterizes integration
+<!-- WRITE: The best idea in the piece -- give it one clear thought and resist
+decorating it. Averaging time is the independent variable of an Allan curve, so
+every parameter in it describes integrating a rate signal. This policy
+integrates nothing: it is memoryless and re-grounded by contact every step.
+You characterized the sensor for integration and tested it on a system that
+does not integrate, and every result in section 4 falls out of that. Rule out
+sensor fusion explicitly, since it is the plausible wrong explanation a reader
+will reach for first. -->
 <!-- ~400 words. The best idea in the project. One thought, stated plainly. -->
 
 <!-- Averaging time tau IS the independent variable of an Allan curve. Noise
@@ -163,6 +245,16 @@ truth in sim rather than estimator output. -->
 ---
 
 ## 6. The error budget that actually binds
+<!-- WRITE: Your section. Start with the physics: gravity tilt is a DIRECTION
+error, the vector is renormalized, so a common-mode scale error produces
+exactly zero tilt -- which is why the sensitive channel is not any single
+datasheet line item. Walk the causes as a practising sensor engineer would,
+and give g-sensitivity its own sentence, since a bias locked to the gait cycle
+is a structurally different error from noise. Then the stack-up table, landing
+on 4.41 deg against a measured 4.54 deg onset. The conclusion to state plainly:
+the binding error budget is mechanical and estimator-side, while the entire
+project targeted Allan-variance parameters. That is the sentence a robotics
+hardware reader will take away. -->
 <!-- ~450 words. YOUR section. The analysis an ML researcher would not do. -->
 
 <!-- Gravity tilt is a DIRECTION error -- the vector is renormalized, so
@@ -192,6 +284,14 @@ slowly varying -- exactly the structure uniform i.i.d. DR omits. -->
 ---
 
 ## 7. What I'd do next
+<!-- WRITE: Frame as a program, not loose ends. The first item is the real
+successor -- the same experiment on a system that integrates -- and it follows
+directly from section 5 rather than being a wish. Items 2 and 3 are the
+practical payoffs: nobody randomizes misalignment, and you now have the data
+to say what DR should randomize instead. Item 4 is cheap and carries two
+pre-registered predictions, which is worth saying because it commits you in
+advance. Close on a line that makes a reader want to know what happens when
+the system does integrate. -->
 <!-- ~300 words. A program, not loose ends.
   1. The same experiment on a system that INTEGRATES -- inertial odometry or
      VIO. Where Allan parameters are the right characterization and the
@@ -211,6 +311,14 @@ slowly varying -- exactly the structure uniform i.i.d. DR omits. -->
 ---
 
 ## 8. Limitations
+<!-- WRITE: Plainly, no softening, no mitigating clause after each one. The
+severity ceiling needs stating first and clearly, because a reader will
+otherwise picture a robot falling over when "failure" here means 10-17 %
+degradation. Single seed and GPU non-reproducibility belong together, and say
+that the 13x ratio -- your only strongly positive number -- is the one that
+most needs a seed sweep. Finish with the irony worth owning: the simulator was
+chosen for differentiability, and differentiability turned out to be the one
+capability the project could not use. -->
 <!-- ~300 words. Straight from docs/findings.md. Do not soften.
   - Severity ceiling: nothing in the defensible box costs >17 % of return.
     "Failure" means degradation, not collapse.
@@ -233,6 +341,12 @@ slowly varying -- exactly the structure uniform i.i.d. DR omits. -->
 ---
 
 ## Appendix: prediction record
+<!-- WRITE: Two or three sentences, no self-flagellation. List what you
+predicted and what happened. The point is the asymmetry: three directional
+calls from sensor-physics intuition were wrong, and the one correct prediction
+came from a mechanism inferred from the measurements. That is the argument for
+measuring sensitivity before building a search, and it is stronger as evidence
+than as an apology. -->
 <!-- Include this. It reads as rigor when framed as a finding.
   Pre-registered OFAT predictions: 2 of 5.
     right: gyro white no failure; latency most sensitive
