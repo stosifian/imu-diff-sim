@@ -9,6 +9,10 @@ Working titles, pick or replace:
      and the reason was more interesting."
   - "Standard domain randomization over-covers sensor noise by 146x"
   - "The error budget that actually breaks a quadruped policy"
+  - "First Foray into Sim2Real: the error budget that actually breaks a quadruped policy"
+
+Figures are referenced relative to this file (reports/figures/...),
+so they render in place on GitHub and in most markdown viewers.
 
 Target ~2,800 words. Numbers: docs/findings.md. Narrative: docs/approach_log.md.
 Figures: reports/figures/.
@@ -27,7 +31,7 @@ on this class of system, and where it should be aimed instead. -->
 <!-- ~250 words. Verdict in the first paragraph. Do not make the reader earn
 it. Open with the table; prose after. -->
 
-| premise | verdict |
+| Premise | Verdict |
 |---|---|
 | failures exist in the physics-parameterized noise space | **no** — every channel 25–635x clear |
 | …but they exist in attitude error | **yes** — onset 4.5°, field stack-up 4.41° |
@@ -40,6 +44,10 @@ it. Open with the table; prose after. -->
 <!-- State your background once, here, and let it work: you came from sensor
 physics, which is why you asked whether the error budget was the right one.
 Do not apologise for it being a first robotics project. -->
+
+I've been seeing a lot of dialogue about Sim2Real in the (mostly online) robot circles I've found myself and given my background as a sensing system engineer (mainly magnetic position sensors for camera actuators), I wanted to explore a sensing-first approach to robot simulation. The problem I posed is as follows: if you could create a differentiable, physics-based model of a sensor (in this case, an IMU), what insight could you gain into a robot policy's sensitivity to physically derived attributes of the IMU, and hence search out failure modes in simulation that would correspond to different attributes on a datasheet? Maybe a bit ambitious for a first robot simulation project, but something I felt with coding agents I could get some nice insight in to help guide my understanding :)  
+
+TLDR: what I found is that (at least for the walking quadruped problem) there aren't policy failures in the physics-parametrized space of the IMU (Allan-variance terms: noise density, bias instability, random walk) but rather from sources that wouldn't be captured at the component level - misalignment and latency.
 
 ---
 
@@ -66,6 +74,8 @@ here, before the results, is what makes the rest credible. -->
     literature (RSS 2018 Minitaur). "DR omits structured errors" is true
     of Playground, not of the field.
 -->
+
+What typically occurs within the robot simulation is this notion of domain randomization. For more kinematic and rigid-body problems, having parameters like mass, friction, and rigidity be randomized over a window of values can give you some valuable insights into the sensitivity of your policy to variations in the physical environment and ideally give you some data on how to best generalize it. I was curious taking this approach but more on the perception/sensing side. Domain randomization here is not a physic-informed model, at least from the available datasets I was seeing for IMU-locomotive tasks. It seems that a rather over-conservative approach is taken, with a common bounding value of +/- .2 rad/s (STD = 0.12 rad/s) is taken, which a ways larger from what's quoted in IMU spec sheets (for example, BMI270 quotes gyro white noise @ 50 Hz a STD = 7.9e-4 rad/s)
 
 ---
 
@@ -104,6 +114,20 @@ you. -->
 
 ---
 
+
+![Allan deviation of a simulated trace against the analytic model](figures/allan-self-consistency.png)
+<!-- FIGURE: the credibility anchor. Say that the simulated trace tracks the
+analytic curve across four decades of tau, that the error bars widen at long
+tau because few independent clusters remain there, and that the ADIS16448
+reference is EuRoC's estimator TUNING values, not a characterisation -- which
+is why a navigation-grade part appears to sit above a consumer one. -->
+
+![Allan deviation of EuRoC data, which violates the method's assumptions](figures/allan-euroc-contaminated.png)
+<!-- FIGURE: optional but memorable. The estimator returns a gyro noise
+density 150x the published value because the record is not stationary. Use it
+to make the point that a method which silently returns a plausible number on
+invalid data is more dangerous than one that errors. -->
+
 ## 4. What I measured
 <!-- WRITE: Let the figures carry the argument and use prose only to connect
 them. Go in the order the work actually went, because each result motivated
@@ -136,6 +160,20 @@ hardening caused the robustness. -->
   the robustness is not DR hardening.
 -->
 
+
+![All five error channels, return and fall rate](figures/ofat-all-factors.png)
+<!-- FIGURE: the main sweep. Four of five panels are flat lines and that IS
+the result -- point it out rather than apologising for it. Only gravity tilt
+and latency bend. Shaded bands are +-1 SEM on return and Wilson 95 % on fall
+rate; mention them, because they are what lets a reader tell a real knee from
+a two-episode fluctuation. -->
+
+![White noise against persistent bias at equal magnitude](figures/ofat-white-vs-bias.png)
+<!-- FIGURE: built to show a divergence that is not there. The two curves lie
+on top of each other, which is the clearest possible refutation of the
+1/sqrt(N) argument. Worth saying explicitly that you made this plot expecting
+them to separate. -->
+
 ### 4.2 It generalizes to rough terrain
 <!-- WRITE: Short. Say why rough terrain was the right generalization test --
 joint-encoder redundancy should depend on predictable ground -- and that you
@@ -149,6 +187,12 @@ weaker policy. -->
   Every gyro knee unchanged. Only latency moved, 2 steps -> 1.
   Baseline there: fall rate 0.17, survival 0.95.
 -->
+
+
+![The same five channels on rough terrain](figures/ofat-all-factors-rough.png)
+<!-- FIGURE: near-identical to the flat version, which is the point. Note the
+baseline differs (fall rate 0.17, survival 0.95) so the comparison is between
+knees, not absolute values. Only latency moved. -->
 
 ### 4.3 Corruption-insensitive is not unused
 <!-- WRITE: The most quotable result; give it room. The distinction is that
@@ -172,6 +216,14 @@ values, not missing ones. -->
   For attitude, wrong information is worse than none: 11 deg of tilt costs
   42 %, removal costs 6 %.
 -->
+
+
+![Return retained after removing each IMU channel, flat and rough](figures/ablation.png)
+<!-- FIGURE: the one to put in a talk. Gyro removal costs ~70 % on BOTH
+terrains -- its role does not depend on the ground. Gravity removal costs 6 %
+on flat and 66 % on rough, and that gap is the upright prior being right or
+wrong. Contrast the 94 % bar against the 42 % cost of merely TILTING gravity
+11 deg: wrong information is more expensive than none. -->
 
 ### 4.4 The gradients don't work
 <!-- WRITE: State the criterion was fixed in week 1, before any of this, then
@@ -216,6 +268,14 @@ brief asked that this exact case be reported if it happened, so say so. -->
 -->
 
 ---
+
+
+![Uniform sampling against CEM over the misalignment box](figures/search-misalign.png)
+<!-- FIGURE: left panel shows where each arm spent its budget, right shows
+discovery rate. Draw attention to the CEM cluster collapsing into a vertical
+streak near 7 deg -- that is mode collapse made visible, and it is why 13x
+more failures does not mean a better result. The uniform points spread across
+the box and reach almost the same worst value. -->
 
 ## 5. Why it failed: Allan variance characterizes integration
 <!-- WRITE: The best idea in the piece -- give it one clear thought and resist
@@ -282,6 +342,15 @@ field. And every dominant tilt contributor is persistent, per-axis and
 slowly varying -- exactly the structure uniform i.i.d. DR omits. -->
 
 ---
+
+
+![In-field tilt contributions against the measured degradation onset](figures/error-budget.png)
+<!-- FIGURE: your signature plot. Walk it left to right: the datasheet terms
+are each under 1.2 deg and RSS to 1.41, then a single mechanical mounting
+error roughly triples it to 4.41 deg, landing on the measured 4.54 deg onset.
+The 11.28 deg knee sits far above, which is why nothing inside a defensible
+box causes collapse. The takeaway to state plainly: the largest term is not
+on any datasheet. -->
 
 ## 7. What I'd do next
 <!-- WRITE: Frame as a program, not loose ends. The first item is the real
