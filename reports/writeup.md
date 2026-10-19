@@ -75,7 +75,7 @@ here, before the results, is what makes the rest credible. -->
     of Playground, not of the field.
 -->
 
-What typically occurs within the robot simulation is this notion of domain randomization. For more kinematic and rigid-body problems, having parameters like mass, friction, and rigidity be randomized over a window of values can give you some valuable insights into the sensitivity of your policy to variations in the physical environment and ideally give you some data on how to best generalize it. I was curious taking this approach but more on the perception/sensing side. Domain randomization here is not a physic-informed model, at least from the available datasets I was seeing for IMU-locomotive tasks. It seems that a rather over-conservative approach is taken, with a common bounding value of +/- .2 rad/s (STD = 0.12 rad/s) is taken, which a ways larger from what's quoted in IMU spec sheets (for example, BMI270 quotes gyro white noise @ 50 Hz a STD = 7.9e-4 rad/s)
+What typically occurs within the robot simulation is this notion of domain randomization. For more kinematic and rigid-body problems, having parameters like mass, friction, and rigidity be randomized over a window of values can give you some valuable insights into the sensitivity of your policy to variations in the physical environment and ideally give you some data on how to best generalize it. I was curious taking this approach but more on the perception/sensing side. Domain randomization here is not a physic-informed model, at least from the available datasets I was seeing for IMU-locomotive tasks. It seems that a rather over-conservative approach is taken, with a common bounding value of +/- .2 rad/s (STD = 0.12 rad/s) is taken, which a ways larger from what's quoted in IMU spec sheets (for example, BMI270 quotes gyro white noise @ 50 Hz a STD = 7.9e-4 rad/s). This was seen across 7 different publicly available models that I came across: Go1 handstand, Go1 getup, G1, Berkeley Humanoid, Apollo, T1 -- quadrupeds and bipeds alike. So more like a default 
 
 ---
 
@@ -115,14 +115,14 @@ you. -->
 ---
 
 
-![Allan deviation of a simulated trace against the analytic model](figures/allan-self-consistency.png)
+<img src="figures/allan-self-consistency.png" width="50%" alt="Allan deviation of a simulated trace against the analytic model">
 <!-- FIGURE: the credibility anchor. Say that the simulated trace tracks the
 analytic curve across four decades of tau, that the error bars widen at long
 tau because few independent clusters remain there, and that the ADIS16448
 reference is EuRoC's estimator TUNING values, not a characterisation -- which
 is why a navigation-grade part appears to sit above a consumer one. -->
 
-![Allan deviation of EuRoC data, which violates the method's assumptions](figures/allan-euroc-contaminated.png)
+<img src="figures/allan-euroc-contaminated.png" width="50%" alt="Allan deviation of EuRoC data, which violates the method's assumptions">
 <!-- FIGURE: optional but memorable. The estimator returns a gyro noise
 density 150x the published value because the record is not stationary. Use it
 to make the point that a method which silently returns a plausible number on
@@ -161,14 +161,14 @@ hardening caused the robustness. -->
 -->
 
 
-![All five error channels, return and fall rate](figures/ofat-all-factors.png)
+<img src="figures/ofat-all-factors.png" width="50%" alt="All five error channels, return and fall rate">
 <!-- FIGURE: the main sweep. Four of five panels are flat lines and that IS
 the result -- point it out rather than apologising for it. Only gravity tilt
 and latency bend. Shaded bands are +-1 SEM on return and Wilson 95 % on fall
 rate; mention them, because they are what lets a reader tell a real knee from
 a two-episode fluctuation. -->
 
-![White noise against persistent bias at equal magnitude](figures/ofat-white-vs-bias.png)
+<img src="figures/ofat-white-vs-bias.png" width="50%" alt="White noise against persistent bias at equal magnitude">
 <!-- FIGURE: built to show a divergence that is not there. The two curves lie
 on top of each other, which is the clearest possible refutation of the
 1/sqrt(N) argument. Worth saying explicitly that you made this plot expecting
@@ -189,7 +189,7 @@ weaker policy. -->
 -->
 
 
-![The same five channels on rough terrain](figures/ofat-all-factors-rough.png)
+<img src="figures/ofat-all-factors-rough.png" width="50%" alt="The same five channels on rough terrain">
 <!-- FIGURE: near-identical to the flat version, which is the point. Note the
 baseline differs (fall rate 0.17, survival 0.95) so the comparison is between
 knees, not absolute values. Only latency moved. -->
@@ -218,7 +218,7 @@ values, not missing ones. -->
 -->
 
 
-![Return retained after removing each IMU channel, flat and rough](figures/ablation.png)
+<img src="figures/ablation.png" width="50%" alt="Return retained after removing each IMU channel, flat and rough">
 <!-- FIGURE: the one to put in a talk. Gyro removal costs ~70 % on BOTH
 terrains -- its role does not depend on the ground. Gravity removal costs 6 %
 on flat and 66 % on rough, and that gap is the upright prior being right or
@@ -270,7 +270,7 @@ brief asked that this exact case be reported if it happened, so say so. -->
 ---
 
 
-![Uniform sampling against CEM over the misalignment box](figures/search-misalign.png)
+<img src="figures/search-misalign.png" width="50%" alt="Uniform sampling against CEM over the misalignment box">
 <!-- FIGURE: left panel shows where each arm spent its budget, right shows
 discovery rate. Draw attention to the CEM cluster collapsing into a vertical
 streak near 7 deg -- that is mode collapse made visible, and it is why 13x
@@ -344,7 +344,7 @@ slowly varying -- exactly the structure uniform i.i.d. DR omits. -->
 ---
 
 
-![In-field tilt contributions against the measured degradation onset](figures/error-budget.png)
+<img src="figures/error-budget.png" width="50%" alt="In-field tilt contributions against the measured degradation onset">
 <!-- FIGURE: your signature plot. Walk it left to right: the datasheet terms
 are each under 1.2 deg and RSS to 1.41, then a single mechanical mounting
 error roughly triples it to 4.41 deg, landing on the measured 4.54 deg onset.
