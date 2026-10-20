@@ -27,7 +27,14 @@ work. Do not hedge or apologise; the cross-domain angle is why you asked
 whether the error budget was the right one at all, and that question is what
 produced the result. End the section by telling the reader what they will get:
 a measured account of why a physics-parameterized sensor model finds nothing
-on this class of system, and where it should be aimed instead. -->
+on this class of system, and where it should be aimed instead.
+
+ALSO SAY, in one sentence: the project was planned as a gradient-search
+experiment and became a sensitivity study. That inversion is the most
+transferable thing here -- four weeks of machinery were built on the
+assumption that failures existed somewhere in the IMU parameter space, and
+one afternoon of one-factor-at-a-time sweeps showed they did not. Flag it
+here; section 4 and the appendix carry it. -->
 <!-- ~250 words. Verdict in the first paragraph. Do not make the reader earn
 it. Open with the table; prose after. -->
 
@@ -60,7 +67,14 @@ value is a convention rather than a calibration. Then state the hypothesis
 that follows and that you genuinely believed: if DR is not physics, a
 physics-parameterized search should find failures it misses. Include the
 caveat that per-episode bias DR exists in the wider literature -- putting it
-here, before the results, is what makes the rest credible. -->
+here, before the results, is what makes the rest credible.
+
+ONE MORE THING HERE: state the plan as it stood, so the reader can watch it
+fail honestly. Build a differentiable Allan-parameterized IMU model, wire it
+into a locomotion policy, then compare gradient-informed adversarial search
+against uniform domain randomization at equal compute. Three of those four
+steps got built. The fourth was never reachable -- and it was the
+measurements, not the argument, that established why. -->
 <!-- ~400 words. The motivation, argued FROM sensor physics. -->
 
 <!-- KEY NUMBERS
@@ -127,7 +141,9 @@ tau because few independent clusters remain there, and that the ADIS16448
 reference is EuRoC's estimator TUNING values, not a characterisation -- which
 is why a navigation-grade part appears to sit above a consumer one. -->
 
-With the model developed, I of course wanted to validate that the error terms actually match expectation. I wanted to make sure that each error term was properly accounted for and the best way tool to do this is the Allan deviation. You can accomplish this by taking a long recording from a motionless sensor, average it over windows of length τ and see how much consecutive window averages differ from one another
+With the model developed, I of course wanted to validate that the error terms actually match expectation. I wanted to make sure that each error term was properly accounted for and the best tool to do this is the Allan deviation. You can accomplish this by taking a long recording from a motionless sensor, average it over windows of length τ and see how much consecutive window averages differ from one another. Then repeat for many τ and plot the result
+
+
 
 
 <p align="center">
@@ -158,7 +174,20 @@ the next: nothing fails in the noise space, so test whether that is an artifact
 of easy terrain; it is not, so test whether the channel is used at all; it is,
 which inverts the story; then the gradients, then the search. Resist
 summarising each subsection -- state the number, say what it rules out, move
-on. The ablation reversal is the one place to slow down. -->
+on. The ablation reversal is the one place to slow down.
+
+OPEN THIS SECTION BY EXPLAINING THE PIVOT, because the ordering is itself a
+result. The planned week-three experiment was the three-arm search. Before
+building it, the cheaper question got asked first: does the policy respond to
+these parameters at all? That is a one-factor-at-a-time sweep -- inject one
+error mode, vary its magnitude, measure -- and it is unglamorous, takes an
+afternoon, and needs no differentiable simulator, no search machinery and no
+clustering. It answered the question the search had been designed to assume.
+
+The honest framing: OFAT should have come first. The plan sequenced four
+weeks of infrastructure ahead of any check that the premise held, and that
+check costs almost nothing. Everything after this point follows from asking
+the cheap question late rather than early. -->
 <!-- ~800 words. Figures carry this; prose connects them. -->
 
 ### 4.1 Nothing in the noise space breaks it
@@ -264,7 +293,21 @@ signature rather than numerical blow-up. H=10 is 0.2 s and a tilt-induced fall
 needs far longer, so the usable horizon and the phenomenon never overlap.
 Report that smoothing was the planned mitigation and that it recovered no
 signal. Worth one line that the Warp backend supports no reverse-mode AD at
-all, since anyone rebuilding this will hit it. -->
+all, since anyone rebuilding this will hit it.
+
+SAY WHEN THIS WAS RUN, because the timing is half the lesson. A gradient
+feasibility spike WAS scheduled for week one and WAS executed -- on a
+different simulator (Brax) with a different physics backend, where the
+gradients came back clean. That was taken as evidence the approach would
+work. It was not: the simulator actually used has a backend with no AD
+support at all, and the pure-JAX path it falls back to produces gradients
+that decorrelate by 0.5 s. The check happened early, on the wrong system,
+and the real answer arrived in week four.
+
+So two sequencing failures compound. The premise -- do failures exist? --
+was checked late. The mechanism -- do gradients work? -- was checked early
+but on a system that was not the one being used. Neither is exotic; both are
+cheap to avoid once named. -->
 <!-- H     AD vs finite diff   sign stability
      10    1.7 %               0.78
      25    78 %                0.78
@@ -464,4 +507,12 @@ than as an apology. -->
   terrain -- came from a mechanism inferred from the measurements, not from
   sensor-physics intuition.
   That asymmetry IS the argument for measuring sensitivity before building
-  a search. -->
+  a search.
+
+  CLOSE ON THE TRAJECTORY. The project set out gradient-search-first and
+  became sensitivity-first, and every substantive result came after that
+  inversion. The sweep that redirected it needs no differentiable simulator,
+  no search machinery, no clustering and no GPU-scale infrastructure -- just
+  a trained policy and the discipline to ask whether the thing you plan to
+  search is something the system actually responds to. If one recommendation
+  survives this write-up, make it that one. -->
