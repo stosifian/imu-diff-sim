@@ -70,11 +70,17 @@ caveat that per-episode bias DR exists in the wider literature -- putting it
 here, before the results, is what makes the rest credible.
 
 ONE MORE THING HERE: state the plan as it stood, so the reader can watch it
-fail honestly. Build a differentiable Allan-parameterized IMU model, wire it
-into a locomotion policy, then compare gradient-informed adversarial search
-against uniform domain randomization at equal compute. Three of those four
-steps got built. The fourth was never reachable -- and it was the
-measurements, not the argument, that established why. -->
+fail honestly. Three build steps: (1) a differentiable Allan-parameterized
+IMU model, (2) wired into a locomotion policy, (3) a comparison of search
+methods over the sensor parameters at equal compute -- uniform domain
+randomization, gradient-informed adversarial search, and a gradient-free
+adaptive baseline.
+
+Steps 1 and 2 got built. Step 3 got built without its central arm: gradients
+through this simulator turned out to be unusable at any horizon where a
+failure could develop, so the method the whole project was designed around
+never ran. It was the measurements, not the argument, that established
+why. -->
 <!-- ~400 words. The motivation, argued FROM sensor physics. -->
 
 <!-- KEY NUMBERS
