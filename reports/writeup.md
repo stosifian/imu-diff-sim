@@ -75,11 +75,11 @@ here, before the results, is what makes the rest credible. -->
     of Playground, not of the field.
 -->
 
-What typically occurs within the robot simulation is this notion of domain randomization. For more kinematic and rigid-body problems, having parameters like mass, friction, and rigidity be randomized over a window of values can give you some valuable insights into the sensitivity of your policy to variations in the physical environment and ideally give you some data on how to best generalize it. I was curious taking this approach but more on the perception/sensing side. Domain randomization here is not a physic-informed model, at least from the available datasets I was seeing for IMU-locomotive tasks. It seems that a rather over-conservative approach is taken, with a common bounding value of +/- .2 rad/s (STD = 0.12 rad/s) is taken, which a ways larger from what's quoted in IMU spec sheets (for example, BMI270 quotes gyro white noise @ 50 Hz a STD = 7.9e-4 rad/s). This was seen across 7 different publicly available models that I came across: Go1 handstand, Go1 getup, G1, Berkeley Humanoid, Apollo, T1 -- quadrupeds and bipeds alike. So more like a default 
+What typically occurs within the robot simulation is this notion of domain randomization. For more kinematic and rigid-body problems, having parameters like mass, friction, and rigidity be randomized over a window of values can give you some valuable insights into the sensitivity of your policy to variations in the physical environment and ideally give you some data on how to best generalize it. I was curious taking this approach but more on the perception/sensing side. Domain randomization here is not a physic-informed model, at least from the available datasets I was seeing for IMU-locomotive tasks. It seems that a rather over-conservative approach is taken, with a common bounding value of +/- .2 rad/s (STD = 0.12 rad/s) is taken, which a ways larger from what's quoted in IMU spec sheets (for example, BMI270 quotes gyro white noise @ 50 Hz a STD = 7.9e-4 rad/s). This was seen across 7 different publicly available models that I came across: Go1 handstand, Go1 getup, G1, Berkeley Humanoid, Apollo, T1 - quadrupeds and bipeds alike. So more like a default than a physically grounded value to my naked eye. So from that, I felt initially a bit optimistic about my hypothesis: if domain randomization is not physics-informed, a physics-parametrized search should find failures that it misses. 
 
 ---
 
-## 3. What I built
+## 3. What I built: The IMU Model
 <!-- WRITE: Enough for a reader to trust the instrument, no more. The model
 follows Kalibr conventions so the parameters map onto how the field talks; it
 is reparameterized so gradients reach the distribution parameters. Emphasise
@@ -114,6 +114,9 @@ you. -->
 
 ---
 
+First, the physics-based IMU model. It follows the Kalibr convention which is common in the robotics community to describe IMU error as the following: a white noise term, a bias that evolves as a random walk, and a per-episode scale factor. I used the Bosch BMI270 (a common MEMs part found in wearables and hobby robotics) as the reference and parametrized the model as such, using the datasheet values plus one community characterization (https://github.com/luxonis/depthai-core/issues/886).
+
+One key implementation detail to maintain the differentiable construction: the noise is generated outside the model by drawing unit-variance random numbers once, and the parameters simply scale them as ordinary multiplication so the gradients can reach them. Since the random draw is fixed, two different parameter settings can be evaluated against identical noise, so any difference is attributable to the parameter rather than sampling luck. Same reason as why you'd test two different controllers or sensor designs against the same recorded vibration profile or walking trace.
 
 <p align="center">
   <img src="figures/allan-self-consistency.png" width="50%" alt="Allan deviation of a simulated trace against the analytic model">
@@ -123,6 +126,22 @@ analytic curve across four decades of tau, that the error bars widen at long
 tau because few independent clusters remain there, and that the ADIS16448
 reference is EuRoC's estimator TUNING values, not a characterisation -- which
 is why a navigation-grade part appears to sit above a consumer one. -->
+
+With the model developed, I of course wanted to validate that the error terms actually match expectation. I wanted to make sure that each error term was properly accounted for and the best way tool to do this is the Allan deviation. You can accomplish this by taking a long recording from a motionless sensor, average it over windows of length τ and see how much consecutive window averages differ from one another
+
+
+<p align="center">
+  <img src="figures/allan-equation.png" width="50%" alt="The overlapping Allan variance estimator as implemented">
+</p>
+<!-- FIGURE: the estimator itself, transcribed from
+imu_diff_sim.allan.overlapping_allan_deviation. Optional -- include it if the
+audience is technical enough to want the definition, cut it if the prose
+explanation in this section is carrying the concept well enough on its own.
+If you keep it, the one line worth adding is why OVERLAPPING matters: a block
+estimator has only a handful of independent windows at long tau, which is
+exactly where the slow-drift term is read, so the curve degenerates into
+noise in the region you most need it. Re-render with
+scripts/render_equation.py if allan.py ever changes. -->
 
 <p align="center">
   <img src="figures/allan-euroc-contaminated.png" width="50%" alt="Allan deviation of EuRoC data, which violates the method's assumptions">
