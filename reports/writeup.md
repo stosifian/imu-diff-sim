@@ -2,6 +2,8 @@
 
 I built a physics-parameterized IMU model to find failure modes in a quadruped locomotion policy. Turned out that nothing in the component parameter space was able to break it and the errors that actually mattered were at the system-level: mounting misalignment and latency.
 
+Repository is here: https://github.com/stosifian/imu-diff-sim/tree/main
+
 
 ## 1. The question and the short answer
 
