@@ -12,7 +12,7 @@ data/*.parquet
 
 # Run outputs. `runs/*`, not `runs/`: git does not descend into an ignored
 # DIRECTORY, so a negation for a file inside one never fires. The sweep
-# outputs below were silently uncommitted for weeks because of that.
+# outputs below were silently uncommitted for most of the project.
 runs/*
 wandb/
 reports/figures/*.png
@@ -41,3 +41,7 @@ reports/figures/*.gif
 
 # Review passes over the write-up. Working notes on a draft, not part of it.
 reports/writeup-review-*.md
+
+# Lab notebook and the running glossary. Working material, kept local.
+notes/
+docs/glossary.md
