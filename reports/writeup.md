@@ -161,6 +161,8 @@ For the rest of the write up, one important note: while holding gravity at a con
 
 <p align="center">
   <img src="figures/ablation.png" width="50%" alt="Fall rate with each IMU channel held at a constant, flat and rough">
+  <br>
+  <em>Fall rate with each IMU channel held at a constant, flat and rough</em>
 </p>
 
 
@@ -201,6 +203,8 @@ Even on how bad the worst failure was, there is little difference between the tw
 
 <p align="center">
   <img src="figures/search-misalign.png" width="60%" alt="Uniform sampling against CEM over the misalignment box">
+  <br>
+  <em>Uniform sampling against CEM over the misalignment box</em>
 </p>
 
 
@@ -231,6 +235,8 @@ So the budget that binds is mechanical. Worse, every dominant contributor here i
 
 <p align="center">
   <img src="figures/error-budget.png" width="50%" alt="In-field tilt contributions against the measured degradation onset">
+  <br>
+  <em>In-field tilt contributions against the measured degradation onset</em>
 </p>
 
 
@@ -266,10 +272,6 @@ Worth outlining some of the key limitations with this experiment:
 
 
 ## Appendix: prediction record
-
-I kept a prediction log in the lab notebook: the first five recorded as a block before the opening sweep, the rest written down as each experiment was set up. 4 out of 11 of the calls were right. What’s interesting isn’t the score, it’s which ones missed: every time I tried to guess an actual magnitude from sensor physics I got it wrong (bias would knee before white noise, 50% scale error would cost something, tilt wouldn’t matter, the standing effect would hold up under the control). The two calls that did survive weren’t really predictions so much as mechanisms I’d already read off a measurement in hand. 
-
-So I’d say that’s the real argument for doing it in this order. I started out wanting to build a gradient search and ended up doing a sensitivity sweep first, and that sweep is the easy part: no differentiable simulator, no search machinery, no GPU, just a trained policy and asking whether the thing you’re about to search is something the system even responds to.
 
 
 | | Prediction | Outcome |
