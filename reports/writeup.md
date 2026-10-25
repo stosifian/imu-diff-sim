@@ -1,524 +1,314 @@
-# [TITLE]
+# And Your IMU Can Sing: a differentiable sensor model that broke nothing
 
-<!--
-SCAFFOLD. Headings, word budgets, and every measured number you might need,
-with its source. Prose is yours; this exists so nothing measured gets lost.
+I built a physics-parameterized IMU model to find failure modes in a quadruped locomotion policy. Turned out that nothing in the component parameter space was able to break it and the errors that actually mattered were at the system-level: mounting misalignment and latency.
 
-Working titles, pick or replace:
-  - "I built a differentiable IMU model to break a robot. It didn't work,
-     and the reason was more interesting."
-  - "Standard domain randomization over-covers sensor noise by 146x"
-  - "The error budget that actually breaks a quadruped policy"
-  - "First Foray into Sim2Real: the error budget that actually breaks a quadruped policy"
-
-Figures are referenced relative to this file (reports/figures/...),
-so they render in place on GitHub and in most markdown viewers.
-
-Target ~2,800 words. Numbers: docs/findings.md. Narrative: docs/approach_log.md.
-Figures: reports/figures/.
--->
 
 ## 1. The question and the short answer
-<!-- WRITE: Open with the table, then say in two or three sentences what you
-set out to test and what the measurement said instead. State once that you
-come from sensor physics (magnetic position sensing for camera actuators) and
-that this was your first robotics-simulation project -- then let that do its
-work. Do not hedge or apologise; the cross-domain angle is why you asked
-whether the error budget was the right one at all, and that question is what
-produced the result. End the section by telling the reader what they will get:
-a measured account of why a physics-parameterized sensor model finds nothing
-on this class of system, and where it should be aimed instead.
 
-ALSO SAY, in one sentence: the project was planned as a gradient-search
-experiment and became a sensitivity study. That inversion is the most
-transferable thing here -- four weeks of machinery were built on the
-assumption that failures existed somewhere in the IMU parameter space, and
-one afternoon of one-factor-at-a-time sweeps showed they did not. Flag it
-here; section 4 and the appendix carry it. -->
-<!-- ~250 words. Verdict in the first paragraph. Do not make the reader earn
-it. Open with the table; prose after. -->
-
-| Premise | Verdict |
-|---|---|
-| failures exist in the physics-parameterized noise space | **no** — every channel 25–635x clear |
-| …but they exist in attitude error | **yes** — onset 4.5°, field stack-up 4.41° |
-| gradients flow through the simulator | **no** — correct only to H=10 (0.2 s) |
-| randomized smoothing rescues them | **no** — mean indistinguishable from zero |
-| adaptive search beats uniform sampling | **yes** — 13x more failures |
-| …and finds *worse* failures | **no** — 1.5 % difference |
-| …and finds *diverse* failures | **no** — collapsed to one mode |
-
-<!-- State your background once, here, and let it work: you came from sensor
-physics, which is why you asked whether the error budget was the right one.
-Do not apologise for it being a first robotics project. -->
-
-I've been seeing a lot of dialogue about Sim2Real in the (mostly online) robot circles I've found myself and given my background as a sensing system engineer (mainly magnetic position sensors for camera actuators), I wanted to explore a sensing-first approach to robot simulation. The problem I posed is as follows: if you could create a differentiable, physics-based model of a sensor (in this case, an IMU), what insight could you gain into a robot policy's sensitivity to physically derived attributes of the IMU, and hence search out failure modes in simulation that would correspond to different attributes on a datasheet? Maybe a bit ambitious for a first robot simulation project, but something I felt with coding agents I could get some nice insight in to help guide my understanding :)  
+I've been seeing a lot of dialogue about Sim2Real in the (mostly online) robot circles I've found myself in and given my background as a sensing system engineer (mainly magnetic position sensors for camera actuators), I wanted to explore a sensing-first approach to robot simulation. The problem I posed is as follows: if you could create a differentiable, physics-based model of a sensor (in this case, an IMU), what insight could you gain into a robot policy's sensitivity to physically derived attributes of the IMU, and hence search out failure modes in simulation that would correspond to different attributes on a datasheet? Maybe a bit ambitious for a first robot simulation project, but something I felt with coding agents I could get some nice insight in to help guide my understanding :)  
 
 TLDR: what I found is that (at least for the walking quadruped problem) there aren't policy failures in the physics-parametrized space of the IMU (Allan-variance terms: noise density, bias instability, random walk) but rather from sources that wouldn't be captured at the component level - misalignment and latency.
 
----
+
+| Premise | Verdict |
+|---|---|
+| failures exist in the physics-parameterized noise space | **no** — white noise clear by 348×, bias and scale never knee in range |
+| …but they exist in attitude error | **yes** — onset 4.1–5.1° across every command regime, and the in-field stack-up is the same size at 4.4° |
+| gradients flow through the simulator | **no** — no horizon clears both thresholds fixed before the run |
+| randomized smoothing rescues them | **no** — no axis clears the threshold fixed before the run |
+| adaptive search beats uniform sampling | **on hit rate only** — 13× more failures found |
+| …and finds *worse* failures | **no** — worst case 17 % against 16 % |
+| …and finds *diverse* failures | **no** — collapsed to one mode |
+
+
+
 
 ## 2. Why this looked like a good bet
-<!-- WRITE: Make the argument a sensor engineer would make. Domain
-randomization in these pipelines is not a sensor model -- it is regularization
-noise, and nobody derived +-0.2 rad/s from a datasheet. Show the 146x gap and
-the seven-robots-one-constant detail, because together they establish the
-value is a convention rather than a calibration. Then state the hypothesis
-that follows and that you genuinely believed: if DR is not physics, a
-physics-parameterized search should find failures it misses. Include the
-caveat that per-episode bias DR exists in the wider literature -- putting it
-here, before the results, is what makes the rest credible.
 
-ONE MORE THING HERE: state the plan as it stood, so the reader can watch it
-fail honestly. Three build steps: (1) a differentiable Allan-parameterized
-IMU model, (2) wired into a locomotion policy, (3) a comparison of search
-methods over the sensor parameters at equal compute -- uniform domain
-randomization, gradient-informed adversarial search, and a gradient-free
-adaptive baseline.
 
-Steps 1 and 2 got built. Step 3 got built without its central arm: gradients
-through this simulator turned out to be unusable at any horizon where a
-failure could develop, so the method the whole project was designed around
-never ran. It was the measurements, not the argument, that established
-why. -->
-<!-- ~400 words. The motivation, argued FROM sensor physics. -->
+What typically occurs within robot simulation is this notion of domain randomization. For more kinematic and rigid-body problems, having parameters like mass, friction, and rigidity be randomized over a window of values can give you some valuable insights into the sensitivity of your policy to variations in the physical environment and ideally give you some data on how to best generalize it. I was curious taking this approach but more on the perception/sensing side. Domain randomization here is not a physics-informed model, at least from the available datasets I was seeing for IMU-locomotive tasks. It seems that a rather over-conservative approach is taken, with a common bounding value of +/- .2 rad/s (STD = 0.12 rad/s), which is a ways away from what's quoted in IMU spec sheets (for example, BMI270 quotes gyro white noise @ 50 Hz a STD = 7.9e-4 rad/s). This was seen across 7 different publicly available models that I came across: Go1 joystick, Go1 handstand, Go1 getup, G1, Berkeley Humanoid, Apollo, T1 - quadrupeds and bipeds alike. It seems to be more of a default than an actual physically grounded value. So from that, I felt initially a bit optimistic about my hypothesis: if domain randomization is not physics-informed, a physics-parametrized search should find failures that it misses. 
 
-<!-- KEY NUMBERS
-  Playground gyro DR: uniform +-0.2 rad/s -> std 0.1155 rad/s
-  BMI270 gyro white noise @ 50 Hz:        std 7.9e-4 rad/s
-  Ratio:                                  146x
-  Identical gyro=0.2, gravity=0.05 across SEVEN robots: Go1 joystick,
-    Go1 handstand, Go1 getup, G1, Berkeley Humanoid, Apollo, T1 --
-    quadrupeds and bipeds alike. A copied default, not a calibration.
-  Honest caveat: per-episode IMU bias DR DOES appear in the wider
-    literature (RSS 2018 Minitaur). "DR omits structured errors" is true
-    of Playground, not of the field.
--->
+So the plan was: 
+1) Build a differentiable, parametrized IMU model
+2) Wire it into a locomotion policy
+3) Compare gradient-informed adversarial search against uniform domain randomization, and a gradient-free adaptive baseline
 
-What typically occurs within the robot simulation is this notion of domain randomization. For more kinematic and rigid-body problems, having parameters like mass, friction, and rigidity be randomized over a window of values can give you some valuable insights into the sensitivity of your policy to variations in the physical environment and ideally give you some data on how to best generalize it. I was curious taking this approach but more on the perception/sensing side. Domain randomization here is not a physic-informed model, at least from the available datasets I was seeing for IMU-locomotive tasks. It seems that a rather over-conservative approach is taken, with a common bounding value of +/- .2 rad/s (STD = 0.12 rad/s) is taken, which a ways larger from what's quoted in IMU spec sheets (for example, BMI270 quotes gyro white noise @ 50 Hz a STD = 7.9e-4 rad/s). This was seen across 7 different publicly available models that I came across: Go1 handstand, Go1 getup, G1, Berkeley Humanoid, Apollo, T1 - quadrupeds and bipeds alike. So more like a default than a physically grounded value to my naked eye. So from that, I felt initially a bit optimistic about my hypothesis: if domain randomization is not physics-informed, a physics-parametrized search should find failures that it misses. 
+As you'll see, Steps 1 and 2 got built but Step 3 was built without its central premise: gradients
+through this simulator turned out to be unusable at any horizon where a failure could develop.
 
----
 
-## 3. What I built: The IMU Model
-<!-- WRITE: Enough for a reader to trust the instrument, no more. The model
-follows Kalibr conventions so the parameters map onto how the field talks; it
-is reparameterized so gradients reach the distribution parameters. Emphasise
-what validation actually established -- self-consistency plus an independent
-cross-check -- and be explicit that recovering your own inputs is not
-validation against reality. The EuRoC rejection is worth a short paragraph: it
-shows you checked whether your data met the method's assumptions instead of
-running the method anyway, and the 150x wrong answer it produces when forced
-is a memorable illustration. Mention the 11-12 % per-realization scatter on
-random walk, because it bounds what any single real log could ever tell
-you. -->
-<!-- ~500 words. Credibility section. Concrete, not exhaustive. -->
+## 3. The IMU Model
 
-<!-- KEY NUMBERS
-  Model: Kalibr conventions, reparameterized so eps is drawn outside and
-    gradients flow through distribution parameters.
-  Allan self-consistency, 16 realizations x 2e6 samples:
-    noise density ratio 1.000 (0.1 % spread)
-    random walk ratio 1.01-1.04, 11-12 % spread PER REALIZATION
-    -> a single real static log cannot pin random walk better than ~+-15 %
-  Independent cross-check: generator and estimator paired against a
-    separately written validation package in both directions.
-  Mutation tests verified to fail for the right reason:
-    sqrt(2) in white density -> N moves to 1.4132, K stays 0.9812
-    dropped /3 in RW term    -> K moves to 1.7020, N stays 0.9993
-  EuRoC was proposed and rejected: no static segment anywhere (quietest
-    10 s window peaks at 0.58 rad/s), 85-145 s records. Forced through, the
-    estimator returns 0.025 rad/s/sqrt(Hz) against a published 1.70e-4 --
-    150x high. Retained as a figure: allan-euroc-contaminated.png
-  Figure: allan-self-consistency.png
--->
 
----
-
-First, the physics-based IMU model. It follows the Kalibr convention which is common in the robotics community to describe IMU error as the following: a white noise term, a bias that evolves as a random walk, and a per-episode scale factor. I used the Bosch BMI270 (a common MEMs part found in wearables and hobby robotics) as the reference and parametrized the model as such, using the datasheet values plus one community characterization (https://github.com/luxonis/depthai-core/issues/886).
+First, the physics-based IMU model. It follows the Kalibr convention which is common in the robotics community to describe IMU error as the following: a white noise term, a bias that evolves as a random walk, a turn-on bias fixed for the episode, and a per-episode scale factor. I used the Bosch BMI270 (a common MEMs part found in wearables and hobby robotics) as the reference, parametrizing the model as such. Bosch specifies noise density but no random walk, so the noise nominals come from one community characterization of a BMI270 inside an OAK camera (https://github.com/luxonis/depthai-core/issues/886), with the datasheet as a cross-check rather than source; only the scale factor bound is datasheet-derived.
 
 One key implementation detail to maintain the differentiable construction: the noise is generated outside the model by drawing unit-variance random numbers once, and the parameters simply scale them as ordinary multiplication so the gradients can reach them. Since the random draw is fixed, two different parameter settings can be evaluated against identical noise, so any difference is attributable to the parameter rather than sampling luck. Same reason as why you'd test two different controllers or sensor designs against the same recorded vibration profile or walking trace.
 
 <p align="center">
-  <img src="figures/allan-self-consistency.png" width="50%" alt="Allan deviation of a simulated trace against the analytic model">
+  <img src="figures/allan-self-consistency.png" width="70%" alt="Allan deviation of a simulated trace against the analytic model">
+    <br>
+  <em>Allan deviation of a simulated trace against the analytic model</em>
 </p>
-<!-- FIGURE: the credibility anchor. Say that the simulated trace tracks the
-analytic curve across four decades of tau, that the error bars widen at long
-tau because few independent clusters remain there, and that the ADIS16448
-reference is EuRoC's estimator TUNING values, not a characterisation -- which
-is why a navigation-grade part appears to sit above a consumer one. -->
-
-With the model developed, I of course wanted to validate that the error terms actually match expectation. I wanted to make sure that each error term was properly accounted for and the best tool to do this is the Allan deviation. You can accomplish this by taking a long recording from a motionless sensor, average it over windows of length τ and see how much consecutive window averages differ from one another. Then repeat for many τ and plot the result
 
 
+With the model developed, I of course wanted to validate that the error terms actually match expectation. I wanted to make sure that each error term was properly accounted for and the best tool to do this is the Allan deviation. You can accomplish this by taking a long recording from a motionless sensor, average it over windows of length τ and see how much consecutive window averages differ from one another. Then repeat for many τ and plot the result.
 
+For the model cross-check, I spun up a separate Claude Code session to generate an independent validation package. Both the internal and external cross checks passed (some spurious artifacts were also introduced to ensure the checks would also catch failures and not blindly pass everything).
+
+A note: the model is written in JAX so it can be traced inside the compiled MJX rollout rather than added after the fact. Using a NumPy model would require a host callback every step.
+
+Before ordering hardware, I tried grounding the model against a public dataset - EuRoC, a drone-flight set whose IMU is well characterized and widely used for VIO benchmarking (and one I worked with previously when getting my feet wet with calibration). The issue is that Allan deviation needs a stationary recording, and EuRoC has no static segment anywhere. Running the estimator on it and it hands back a gyro noise density of 0.025 rad/s/√Hz against a published 1.70e-4  (150× high) with no error and no warning. You can see the problem in the curves below: a stationary record falls as τ^(-1/2), and these rise. 
 
 <p align="center">
-  <img src="figures/allan-equation.png" width="50%" alt="The overlapping Allan variance estimator as implemented">
+  <img src="figures/allan-euroc-contaminated.png" width="65%" alt="Allan deviation of EuRoC gyro data, which violates the method's stationarity assumption">
+    <br>
+  <em>Allan deviation of EuRoC gyro data, which has no static segment — forced through, the estimator returns 150× the published noise density</em>
 </p>
-<!-- FIGURE: the estimator itself, transcribed from
-imu_diff_sim.allan.overlapping_allan_deviation. Optional -- include it if the
-audience is technical enough to want the definition, cut it if the prose
-explanation in this section is carrying the concept well enough on its own.
-If you keep it, the one line worth adding is why OVERLAPPING matters: a block
-estimator has only a handful of independent windows at long tau, which is
-exactly where the slow-drift term is read, so the curve degenerates into
-noise in the region you most need it. Re-render with
-scripts/render_equation.py if allan.py ever changes. -->
 
-<p align="center">
-  <img src="figures/allan-euroc-contaminated.png" width="50%" alt="Allan deviation of EuRoC data, which violates the method's assumptions">
-</p>
-<!-- FIGURE: optional but memorable. The estimator returns a gyro noise
-density 150x the published value because the record is not stationary. Use it
-to make the point that a method which silently returns a plausible number on
-invalid data is more dangerous than one that errors. -->
+Now being from a hardware background, the ultimate check for your simulation passing the sniff test is actually grounding it to real world data! If you can't ground your sim, then your playing with imaginary data. My plan was to order a few units of the Arduino Nano 33 BLE (which has an integrated BM270) and do some bench measurements and compare those to the model. However given the week-long lead time and results from the later steps, I ultimately opted out of doing so given that the veracity of the model was not the ultimate issue with the approach. I do hope to do some more HW measurements soon for future projects!
+
+
+
 
 ## 4. What I measured
-<!-- WRITE: Let the figures carry the argument and use prose only to connect
-them. Go in the order the work actually went, because each result motivated
-the next: nothing fails in the noise space, so test whether that is an artifact
-of easy terrain; it is not, so test whether the channel is used at all; it is,
-which inverts the story; then the gradients, then the search. Resist
-summarising each subsection -- state the number, say what it rules out, move
-on. The ablation reversal is the one place to slow down.
-
-OPEN THIS SECTION BY EXPLAINING THE PIVOT, because the ordering is itself a
-result. The planned week-three experiment was the three-arm search. Before
-building it, the cheaper question got asked first: does the policy respond to
-these parameters at all? That is a one-factor-at-a-time sweep -- inject one
-error mode, vary its magnitude, measure -- and it is unglamorous, takes an
-afternoon, and needs no differentiable simulator, no search machinery and no
-clustering. It answered the question the search had been designed to assume.
-
-The honest framing: OFAT should have come first. The plan sequenced four
-weeks of infrastructure ahead of any check that the premise held, and that
-check costs almost nothing. Everything after this point follows from asking
-the cheap question late rather than early. -->
-<!-- ~800 words. Figures carry this; prose connects them. -->
-
-### 4.1 Nothing in the noise space breaks it
-<!-- WRITE: Lead with the margins, since 635x is the kind of number that
-settles an argument. Then spend most of the space on the refuted hypothesis:
-you expected persistent bias to break the policy where i.i.d. noise did not,
-because only the former survives 1/sqrt(N) averaging over an episode. Show the
-two curves lying on top of each other. Note that this policy trained with no
-observation noise at all, which rules out the obvious explanation that DR
-hardening caused the robustness. -->
-<!-- Figures: ofat-all-factors.png, ofat-white-vs-bias.png
-  64 episodes x 1000 steps. Baseline return 32.18, fall 0.00, survival 1.00.
-  gyro white noise    knee 0.50 rad/s      635x BMI270
-  gyro persistent bias no knee in range    57x
-  gyro scale error     no knee; 50 % error costs 3 %
-  gravity tilt         knee 0.20 (11.3 deg) ~10x
-  IMU latency          knee 2 steps (40 ms) ~7x
-  The structural hypothesis (persistent bias survives 1/sqrt(N) averaging,
-  so should knee earlier) is REFUTED: the two curves sit on top of each
-  other and bias is if anything better tolerated.
-  Policy trained with noise_level = 0.0 -- no observation DR at all -- so
-  the robustness is not DR hardening.
--->
 
 
 <p align="center">
-  <img src="figures/ofat-all-factors.png" width="50%" alt="All five error channels, return and fall rate">
+  <img src="figures/go1-rollout.gif" width="80%" alt="The frozen Go1 policy walking on flat and rough terrain">
+    <br>
+  <em>The policy under test: Go1 joystick task, command pinned at 1.0 m/s forward (just for this example), 10 s at 50 Hz. Left, flat terrain; right, rough.</em>
 </p>
-<!-- FIGURE: the main sweep. Four of five panels are flat lines and that IS
-the result -- point it out rather than apologising for it. Only gravity tilt
-and latency bend. Shaded bands are +-1 SEM on return and Wilson 95 % on fall
-rate; mention them, because they are what lets a reader tell a real knee from
-a two-episode fluctuation. -->
+
+Before jumping into the results, I wanted to first cover in some more detail what the policy and scanerio is here, since everything below is a measurement on it. The testbed is MuJoCo Playground's Go1 joystick task: a Unitree Go1 quadruped tracking a commanded forward, lateral and yaw velocity, on flat ground and on rough terrain. The policy is a feedforward MLP (512/256/128) trained with PPO, running at 50 Hz over 20-second episodes. It is frozen so nothing below retrains it. It reads a 48-dimensional observation of which the IMU is six numbers: three gyro rates and the three components of gravity projected into the body frame. So "injecting IMU error" throughout this write-up means corrupting six of forty-eight inputs.
+
+
+Now I had an IMU model in place and started wiring it into the policy and finding that initially nothing in the policy was breaking from extreme IMU parameters (will get to this in a minute). After some snooping around to see if there were any bad assumptions with the model or data plumbing issue, I realized I could look at the policy and directly measure its sensitivity to any of the IMU parameters, using an OFAT approach (one-factor-at-a-time). This was a methodology I had learned while at Apple, emerging from looking at hardware problems with a 'guaranteed-by-design' approach. One way of doing this if you have a physical model, is to sweep through each parameter input to your model and gauge the response to see how truly sensitive it is. I figured why not do the same with the policy - it is a model after all! With that, I architected a direct sensitivity sweep of each of the IMU inputs to the policy and looked at the fail rate as a response. Doing so was probably the most insightful step in the project. Let's take a deeper look.
+
+
+### 4.1 Nothing in the noise space breaks it
+
+
+First, looking at noise. As you can see from the plot, the key takeaway was that the policy was quite insensitive to noise, requiring 348x the BMI270 spec to reach the knee point in the return-vs-magnitude curve. Not a total surprise based on my intuition. What was surprising was the insensitivity to bias - essentially no knee in the swept range. Scale error a similar story. What proved to be the main killers were gravity tilt (which I would describe as non-uniform error across X, Y, and Z) and IMU latency (which can arise from any filter delays or FIFO reading) - both non-component related sources of error (both 4x margins).
+
+
+<p align="center">
+  <img src="figures/ofat-all-factors.png" width="60%" alt="All five error channels, return and fall rate">
+      <br>
+  <em>All 5 error channels, return and fall rate</em>
+</p>
+
 
 <p align="center">
   <img src="figures/ofat-white-vs-bias.png" width="50%" alt="White noise against persistent bias at equal magnitude">
+      <br>
+  <em>White noise against a persistent bias at equal magnitude</em>
 </p>
-<!-- FIGURE: built to show a divergence that is not there. The two curves lie
-on top of each other, which is the clearest possible refutation of the
-1/sqrt(N) argument. Worth saying explicitly that you made this plot expecting
-them to separate. -->
 
-### 4.2 It generalizes to rough terrain
-<!-- WRITE: Short. Say why rough terrain was the right generalization test --
-joint-encoder redundancy should depend on predictable ground -- and that you
-predicted the gyro margins would shrink. They did not move. Note the controls
-that make it a clean comparison (same class, observation, DR, budget, episode
-length; comparable final reward) so a reader cannot attribute the null to a
-weaker policy. -->
-<!-- Figure: ofat-all-factors-rough.png
-  Identical class, observation, DR, budget, episode length; only terrain XML
-  differs. Rewards comparable (29.62 vs 30.01), so not a weaker policy.
-  Every gyro knee unchanged. Only latency moved, 2 steps -> 1.
-  Baseline there: fall rate 0.17, survival 0.95.
--->
+
+### 4.2 What the metric was actually measuring
+
+Now, you might be wondering if there are certain motion profiles that would be more sensitive to IMU parameter extremes. What I found initially was that the standing-still profile seemed to be the most sensitive to IMU errors, however that actually turned out to be an artifact of the reward. Looking into the Go1 task, there is a 'stand_still' cost that penalizes any joint deviation from the default pose, *but* only when ||command|| < 0.01, which is true for the whole pinned (0,0,0) profile and 1.5 % of the sampled profile (and 0% of the yaw and forward ones), so the pinned profile was penalized for something the non-stationary motion profiles were not. This was proven by pinning the sweep at (0.02, 0, 0) - a hundredth of a m/s above the gate, essentially the same physical scenario - and seeing the sensitivity disappear. The conclusion is that the score is a weighted sum of several terms, so a drop in it doesn’t tell you the robot walked worse — only that something in the sum changed. Everything that actually describes the walking (speed-tracking error, fall rate, survival time) stayed put. 
+
+| Factor | sampled | standing, gated (0,0,0) | standing, ungated (0.02,0,0) | yaw 1.0 rad/s | forward 1.5 m/s |
+|---|---|---|---|---|---|
+| gyro bias, 10 % knee | none in range | **0.092 rad/s** | none in range | none in range | none in range |
+| gyro bias, margin over turn-on bias bound | >57x | **10.5x** | >57x | >57x | >57x |
+| gravity tilt, 5 % onset | 4.41° | **2.33°** | 5.07° | 4.41° | 4.10° |
+| gravity tilt, 10 % knee | 5.14° | **3.44°** | 5.81° | 5.25° | 5.45° |
+| gyro white noise, 10 % knee | 0.274 rad/s | 0.168 rad/s | 0.251 rad/s | not swept | not swept |
+| gyro white noise, margin over BMI270 white | 348x | 213x | 318x | not swept | not swept |
+
 
 
 <p align="center">
-  <img src="figures/ofat-all-factors-rough.png" width="50%" alt="The same five channels on rough terrain">
+  <img src="figures/ofat-command-regimes.png" width="55%" alt="Gyro bias and gravity tilt under four joystick command regimes">
+        <br>
+  <em>Gyro bias and gravity tilt under four joystick command regimes</em>
 </p>
-<!-- FIGURE: near-identical to the flat version, which is the point. Note the
-baseline differs (fall rate 0.17, survival 0.95) so the comparison is between
-knees, not absolute values. Only latency moved. -->
-
-### 4.3 Corruption-insensitive is not unused
-<!-- WRITE: The most quotable result; give it room. The distinction is that
-every sweep before this one CORRUPTED the IMU rather than removing it, and a
-flat response to corruption means robustness, not that the channel is unused.
-Removing the gyro costs 70 % of return. Removing gravity costs 6 % on flat
-ground and 66 % on rough -- and say that you predicted that gap from the
-mechanism (the ablation substitutes nominal upright, which is nearly correct
-on flat ground and wrong on rough) before running it. Finish with the
-asymmetry that matters for the rest of the piece: a wrong attitude estimate is
-far more expensive than a missing one, and in-field drift produces wrong
-values, not missing ones. -->
-<!-- The most quotable result. Give it the subhead.
-  full removal      flat return   flat fall   rough return   rough fall
-  gyro              9.86 (-70%)   0.52        10.42 (-67%)   0.41
-  gravity           30.25 (-6%)   0.03        10.62 (-66%)   0.92
-  both              5.61          0.80        1.90           0.92
-  Gyro: essential AND precision-tolerant.
-  Gravity: required only where the upright prior fails. Predicted from the
-  mechanism BEFORE running the rough case, and confirmed.
-  For attitude, wrong information is worse than none: 11 deg of tilt costs
-  42 %, removal costs 6 %.
--->
 
 
 <p align="center">
-  <img src="figures/ablation.png" width="50%" alt="Return retained after removing each IMU channel, flat and rough">
+  <img src="figures/ofat-white-vs-bias-standing.png" width="55%" alt="White noise against persistent bias, sampled command versus standing still">
+        <br>
+  <em>White noise against persistent bias, standing still, with the stand_still cost inside and outside its gates</em>
 </p>
-<!-- FIGURE: the one to put in a talk. Gyro removal costs ~70 % on BOTH
-terrains -- its role does not depend on the ground. Gravity removal costs 6 %
-on flat and 66 % on rough, and that gap is the upright prior being right or
-wrong. Contrast the 94 % bar against the 42 % cost of merely TILTING gravity
-11 deg: wrong information is more expensive than none. -->
 
-### 4.4 The gradients don't work
-<!-- WRITE: State the criterion was fixed in week 1, before any of this, then
-give the table. The useful framing is that gradients do not explode -- ||g||
-actually falls with horizon -- they decorrelate, which is the chaotic-landscape
-signature rather than numerical blow-up. H=10 is 0.2 s and a tilt-induced fall
-needs far longer, so the usable horizon and the phenomenon never overlap.
-Report that smoothing was the planned mitigation and that it recovered no
-signal. Worth one line that the Warp backend supports no reverse-mode AD at
-all, since anyone rebuilding this will hit it.
+### 4.3 It generalizes to rough terrain
 
-SAY WHEN THIS WAS RUN, because the timing is half the lesson. A gradient
-feasibility spike WAS scheduled for week one and WAS executed -- on a
-different simulator (Brax) with a different physics backend, where the
-gradients came back clean. That was taken as evidence the approach would
-work. It was not: the simulator actually used has a backend with no AD
-support at all, and the pure-JAX path it falls back to produces gradients
-that decorrelate by 0.5 s. The check happened early, on the wrong system,
-and the real answer arrived in week four.
 
-So two sequencing failures compound. The premise -- do failures exist? --
-was checked late. The mechanism -- do gradients work? -- was checked early
-but on a system that was not the one being used. Neither is exotic; both are
-cheap to avoid once named. -->
-<!-- H     AD vs finite diff   sign stability
-     10    1.7 %               0.78
-     25    78 %                0.78
-     50    98 %                0.67
-     100   104 %               0.61
-  Criterion (C2 < 20 %, C3 > 0.8) fixed in week 1. Correct at 0.2 s,
-  meaningless by 0.5 s. NOT exploding -- ||g|| falls as H^-0.39 -- just
-  decorrelated. Chaotic-landscape signature (Suh et al., ICML 2022).
-  Smoothing over 32 episodes: |mean|/SEM 0.4-2.1, all below 3. No descent
-  direction exists.
-  Also: Warp backend supports no reverse-mode AD at all; cfg.impl="jax"
-  required and slower.
--->
+One other check I had wanted was to see if the IMU insensitivity was specific to walking on flat terrain, where joint-encoder redundancy would depend on predictable terrain.  With rough terrain, I had expected the margins the redudancy to degrade and hence the IMU margins to shrink - they did not. Everything besides the terrain was the same: class, observations, domain randomization, budget, and episode length.
 
-### 4.5 The search that remained
-<!-- WRITE: Be explicit that this is the weaker question the claim degrades to
-once gradients are gone, and that the gradient arm was ruled out by
-measurement rather than skipped. Give the fairness controls (equal budget,
-common random numbers, threshold fixed in advance) before the result, because
-that is what makes 13x believable. Then be honest about what it does not show:
-the worst failure is 1.5 % worse, and CEM collapsed to a single mode. The
-brief asked that this exact case be reported if it happened, so say so. -->
-<!-- Figure: search-misalign.png
-  240 evaluations per arm, common random numbers, 10 % failure threshold
-  fixed in advance, +-5 deg/axis box. Baseline 12.34 (400-step horizon).
-  uniform DR  14/240 failures   worst 10.36
-  CEM        182/240 failures   worst 10.20
-  13x discovery rate, 1.5 % severity gain. CEM mode-collapsed:
-  sigma 2.82 -> 0.07 deg by gen 9, |mu| locked at 7.0 deg.
-  Box corner 8.66 deg RSS vs an 11.3 deg knee, so nothing in-box costs more
-  than 17 % of return. Correct physically; shallow by construction.
--->
+<p align="center">
+  <img src="figures/ofat-all-factors-rough.png" width="60%" alt="The same five channels on rough terrain">
+  <br>
+  <em>The same five channels on rough terrain</em>
+</p>
 
----
+
+### 4.4 Corruption-insensitive is not unused
+
+
+Given these results, I started to wonder if the IMU itself is at all even needed? With the previous runs, the IMU was "corrupted" (error injection) and the policy performed robustly still. So naturally, removing the IMU came to mind - first as a sanity check, and second as a sort of 'ultimate' sensitivity check.
+
+To clarify, by 'remove' here I mean holding the channels at a constant value. The gyro slots are zero and the gravity slots to nominal upright (z = -1). As a result, the policy is still reading a legit value, just one that's not informative. Held at zero, the gyro costs ~70% of return for both terrains and puts the robot on the ground roughly half of all episodes. Gravity is interesting - held upright it costs 6% of return and 3% of episodes on flat ground, and 66% of return with 92% falls on rough.
+
+
+For the rest of the write up, one important note: while holding gravity at a constant costs 6% on flat ground, tilting it by 11˚ costs 42%(!), which is an offset of 0.19 in the unit-vector units in the figure plots. So a wrong attitude estimate is much more punishing than a 'missing' one, and everything that goes wrong in the field produces wrong values, not missing ones (unless you have strange assert statement hiding in your code). Section 6 goes into detail for this.
+
 
 
 <p align="center">
-  <img src="figures/search-misalign.png" width="50%" alt="Uniform sampling against CEM over the misalignment box">
+  <img src="figures/ablation.png" width="50%" alt="Fall rate with each IMU channel held at a constant, flat and rough">
 </p>
-<!-- FIGURE: left panel shows where each arm spent its budget, right shows
-discovery rate. Draw attention to the CEM cluster collapsing into a vertical
-streak near 7 deg -- that is mode collapse made visible, and it is why 13x
-more failures does not mean a better result. The uniform points spread across
-the box and reach almost the same worst value. -->
+
+
+### 4.5 The gradients don't work
+
+
+Returning to the original premise, besides the fact that the OFAT approach showed I couldn't get a direct sensitivity to the IMU parameters, the gradients didn't pan out either. The whole point of a differentiable simulator was that I wouldn't have to sample different IMU values hoping to break the policy, but rather calculate how the performance changed w.r.t to the parameters (i.e. the gradient) and walk uphill, essentially closing the loop to finding the failure mode.
+
+Before running the sweep, I wrote down what could count as a usable gradient: under 20% disagreement with the finite-difference estimate and sign agreement > 0.8. Both are recorded in the docstring of scripts/spike_gradients.py. 
+
+
+| rollout horizon | simulated time | AD vs finite difference | sign agreement across draws |
+|---|---|---|---|
+| H = 10 | 0.2 s | **1.7 %** | 0.78 |
+| H = 25 | 0.5 s | 78 % | 0.78 |
+| H = 50 | 1.0 s | 98 % | 0.67 |
+| H = 100 | 2.0 s | 104 % | 0.61 |
+
+Peeking at the table, you can start to see the issue. At H=50 (only a second into the simulation) the autodiff gradient disagrees with a finite difference of the same function by 98%. At H = 100, the sign agrees only 61% of the time - a measurement with no systematic component. No horizon cleared both of my earlier stated conditions. Randomized smoothing didn't recover anything either.  
+
+
+### 4.6 The search that remained
+
+Given the issue with the gradients in this problem, can adaptive gradient-free search find failures more efficiently than uniform sampling? 
+
+For the approach, two methods (both get 240 tries):
+
+Method A - uniform, draw misalignment vectors uniformly at random from the ±5°/axis box and evaluate each. No adaptation; it never uses what it learned from earlier samples.
+
+Method B - cross entropy method (CEM), sample a population from a Gaussian, keep the worst-performing elites (worst = lowest return, since you’re hunting failures), refit the Gaussian to those elites, repeat. Adaptive, but gradient-free.
+
+Both methods were scored on the same 16 simulated runs so neither could get lucky from a few easy runs. Failure was defined as the robot losing more than 10% of its usual score (same 10% used everywhere else in the write-up). The built-in simulator's sensor noise was turned off as it would've snuffed out any couple degrees of mounting error.
+
+Method B's CEM found 182 failures compared to Method A's 14. The thing is that the hit rate doesn't tell you much on its own. It only tells you how many of the tries landed in the fail region, and staying in it pushes the number to 100% automatically (visible in the right panel in the plot below - CEM curve goes straight after about 75 tries and doesn't bend again).
+
+Even on how bad the worst failure was, there is little difference between the two methods. Method B's worst cost 17% of the robot's score; Method A's cost 16%. CEM also never pushed as far into the box as uniform did (7.66° against 7.98°) since it got locked in the first bad region it found and used the rest of its tries confirming it. Also note that the x-axis collapses a three-component rotation into one number, so every point at 7° is a different mounting error pointed a different way, costing anywhere from 10.8 down to 10.2, so magnitude alone doesn’t tell you whether the policy fails. Neither method reached the corner at 8.66°, where interpolating the OFAT curve gives around 31% degradation against the 17% the search actually found.
+
+
+<p align="center">
+  <img src="figures/search-misalign.png" width="60%" alt="Uniform sampling against CEM over the misalignment box">
+</p>
+
 
 ## 5. Why it failed: Allan variance characterizes integration
-<!-- WRITE: The best idea in the piece -- give it one clear thought and resist
-decorating it. Averaging time is the independent variable of an Allan curve, so
-every parameter in it describes integrating a rate signal. This policy
-integrates nothing: it is memoryless and re-grounded by contact every step.
-You characterized the sensor for integration and tested it on a system that
-does not integrate, and every result in section 4 falls out of that. Rule out
-sensor fusion explicitly, since it is the plausible wrong explanation a reader
-will reach for first. -->
-<!-- ~400 words. The best idea in the project. One thought, stated plainly. -->
 
-<!-- Averaging time tau IS the independent variable of an Allan curve. Noise
-density, bias instability, random walk: all statements about integrating a
-rate signal over seconds to hours. Right characterization for inertial
-navigation, which is what it was built for.
-This policy integrates nothing. Memoryless MLP (512/256/128, SiLU,
-tanh-normal), acting instant to instant, re-grounded by contact every step.
-The long-tau half of the curve describes a failure mode the task cannot have.
-Everything follows: gyro channels flat because nothing accumulates them; the
-channels that bind are an instantaneous attitude reference with no
-redundancy, and a control-loop stability property. Neither is a noise
-parameter.
-Note it is NOT sensor fusion: no filter, no history, and gravity is ground
-truth in sim rather than estimator output. -->
 
----
+So, it seems like the original hypothesis I had seemingly 'failed' - but why is that? A couple ideas.
+
+With IMUs, you traditionally pay the penalty via integration. The averaging time τ is the independent variable of the Allan curve and the policy itself has no accumulator as it's feedforward multi-layer perceptron with no recurrent state. Hence, the errors from the IMU model never get a chance to actually acummulate, they're at best treated as an overall noise on the measurement. So, this wasn't the best problem to model IMU physics for given the lack of integration/accumulation in the policy. Also worth stating that the policy itself was trained with +/- 0.2 rad/s of per-step random noise and was never exposed to a bias. If the exposure (or lack there of) was truly an issue, then we'd see the policy struggle with bias, but that turned out not to be the case, with white noise breaking it first. 
+
+
+The other idea is simpler and doesn’t involve integration at all. A constant offset is one wrong number, and everything else the policy reads (joint angles, the gravity vector, the velocity estimate) stays consistent around it, so there’s plenty left to lean on. White noise hands it a different wrong number every step, and there’s nothing to lean on. That gets you white-before-bias too, with no accumulation anywhere in the argument. A caveat is that the velocity estimate is ground truth in the simulation, but on real hardware that would come from a state estimator that integrates the IMU, so by nothing integrating here, I mean from the policy.
+
+The measurement that would separate them is a bias that ramps rather than one that sits still (like a temperature drift). Sweep the ramp rate and find where the policy starts to care. If accumulation is what matters, a ramp should hurt where a constant does not, and the rate at which it bites should scale with the episode. If redundancy is what matters, the ramp rate should barely register. I haven’t run it — which makes this the explanation I believe, not the one I’ve tested.
+
+Also worth briefly stating that there is no sensor fusion going on here, so that wouldn't explain the insensitivity. There's no filter, no history, and gravity is ground truth in the sim.
+
 
 ## 6. The error budget that actually binds
-<!-- WRITE: Your section. Start with the physics: gravity tilt is a DIRECTION
-error, the vector is renormalized, so a common-mode scale error produces
-exactly zero tilt -- which is why the sensitive channel is not any single
-datasheet line item. Walk the causes as a practising sensor engineer would,
-and give g-sensitivity its own sentence, since a bias locked to the gait cycle
-is a structurally different error from noise. Then the stack-up table, landing
-on 4.41 deg against a measured 4.54 deg onset. The conclusion to state plainly:
-the binding error budget is mechanical and estimator-side, while the entire
-project targeted Allan-variance parameters. That is the sentence a robotics
-hardware reader will take away. -->
-<!-- ~450 words. YOUR section. The analysis an ML researcher would not do. -->
 
-<!-- Gravity tilt is a DIRECTION error -- the vector is renormalized, so
-common-mode magnitude errors vanish entirely. A uniform scale error produces
-exactly zero tilt. Causes, all per-axis:
-  temperature: TCO 0.015 dps/K, 0.25 mg/K; TCS 0.02 %/K
-  package and PCB stress (why specs read "soldered, lifetime")
-  mechanical shock, aging, CRT drifted or never run
-  g-sensitivity 0.1 dps/g -- locked to the gait cycle, not noise
-  chassis deformation, re-assembly
-  IMU mounting misalignment
 
-  tilt source                      degrees
-  accel zero-g offset (+-20 mg)    1.15
-  accel TCO over 40 K              0.57
-  accel cross-axis (1 %)           0.57
-  RSS, datasheet only              1.41
-  + 3 deg mechanical mounting      4.41
-  MEASURED degradation onset       4.54
+With all this exploration, it'd be at least worth laying out an error budget (every sensing engineer's occasional best friend). First note is that gravity tilt here is a direction error, not a magnitude one. The accelerometer vector gets normalized before reaching the policy so any uniform scale error applied to all three axes will result in zero tilt. What escapes the normalization is any error term that makes the axes disagree with each other. Given the presence of gravity, that means any additive term on all three axes (let's call it δ ) would result in a tilt after normalization. This can be from a variety of reasons: temperature (.25 mg/K offset drift), cross-axis sensitivty (1%), accelerometer zero-g offset, and other sources not quoted in the datasheet: package and board stress, mechanical shock, aging/lifetime drift. 
 
-Gyro comparison is the opposite: in-field drift 0.6-1.0 dps against a knee
-at 29 dps.
-So: gyro drift is irrelevant in the field; attitude drift is marginal in the
-field. And every dominant tilt contributor is persistent, per-axis and
-slowly varying -- exactly the structure uniform i.i.d. DR omits. -->
+The chart below is a stack up, left-to-right the four datasheet contributors (all under 1.2˚). Since they're independent, they combine in the RSS to 1.41˚. Then I assumed a 3˚ mechanical mounting tolerance (not measured but assumed based on literature/references I've seen), adding directly gives 4.41˚ since mounting is systematic. With misalignment mounting considered, that does put the budget in the negative for the walking forward case, getting us past first detectable degradation in the fastest case - no physics-modeling needed, just some system level considerations. 
 
----
+So the budget that binds is mechanical. Worse, every dominant contributor here is persistent, per-axis, and slowly varying — precisely the structure that per-step uniform randomisation does not have.
 
 
 <p align="center">
   <img src="figures/error-budget.png" width="50%" alt="In-field tilt contributions against the measured degradation onset">
 </p>
-<!-- FIGURE: your signature plot. Walk it left to right: the datasheet terms
-are each under 1.2 deg and RSS to 1.41, then a single mechanical mounting
-error roughly triples it to 4.41 deg, landing on the measured 4.54 deg onset.
-The 11.28 deg knee sits far above, which is why nothing inside a defensible
-box causes collapse. The takeaway to state plainly: the largest term is not
-on any datasheet. -->
+
 
 ## 7. What I'd do next
-<!-- WRITE: Frame as a program, not loose ends. The first item is the real
-successor -- the same experiment on a system that integrates -- and it follows
-directly from section 5 rather than being a wish. Items 2 and 3 are the
-practical payoffs: nobody randomizes misalignment, and you now have the data
-to say what DR should randomize instead. Item 4 is cheap and carries two
-pre-registered predictions, which is worth saying because it commits you in
-advance. Close on a line that makes a reader want to know what happens when
-the system does integrate. -->
-<!-- ~300 words. A program, not loose ends.
-  1. The same experiment on a system that INTEGRATES -- inertial odometry or
-     VIO. Where Allan parameters are the right characterization and the
-     thesis should hold. The real successor.
-  2. Misalignment as a sim-to-real study: measure the actual mounting-error
-     distribution on hardware, ask whether policies should train with
-     misalignment DR. Nobody randomizes it.
-  3. What should DR actually randomize? Retrain with less noise, added
-     misalignment and latency; compare transfer. The engineering payoff.
-  4. Recurrent vs feedforward. Two pre-registered predictions: memory should
-     make bias WORSE (a constant offset accumulates) and latency BETTER.
-     Cheapest; note brax PPO has no recurrence, so the feasible version is
-     frame stacking, which tests latency well and bias weakly.
-  Close forward. Last line should make a reader want to know what happens on
-  a system that integrates. -->
 
----
+Given all the negative discoveries here, there's a *lot* I could do for follow ups. I think the biggest to state would be to test this on a system that actually integrates the IMU readings - so anything reliant on inertial odometry or VIO/LIO (drones, AR headsets, phone tracking). 
+
+Another would be explicitly including misalignment as a sim-to-real study, though grounding the data in actual mounting-error distributions from hardware (not something I have access to currently).
+
+Additionally, given that integration of the IMU outputs is what's been hypothesized as a miss for this approach, one other method to try is using a policy with a memory-mechanism (like recurrence)
 
 ## 8. Limitations
-<!-- WRITE: Plainly, no softening, no mitigating clause after each one. The
-severity ceiling needs stating first and clearly, because a reader will
-otherwise picture a robot falling over when "failure" here means 10-17 %
-degradation. Single seed and GPU non-reproducibility belong together, and say
-that the 13x ratio -- your only strongly positive number -- is the one that
-most needs a seed sweep. Finish with the irony worth owning: the simulator was
-chosen for differentiability, and differentiability turned out to be the one
-capability the project could not use. -->
-<!-- ~300 words. Straight from docs/findings.md. Do not soften.
-  - Severity ceiling: nothing in the defensible box costs >17 % of return.
-    "Failure" means degradation, not collapse.
-  - Single seed throughout; GPU results are not bit-reproducible (one point
-    read 0.00 / 0.031 / 0.00 across three identical-seed runs; ~2/64
-    episodes of run-to-run variation). The 13x ratio most deserves a seed
-    sweep.
-  - One architecture. The latency result is architecture-bound.
-  - Simulation only. No hardware validation of any policy claim.
-  - Raw sensor, not estimator. The channels that bind are exactly the ones
-    that would live in a real state estimator.
-  - BMI270 parameters rest on a datasheet plus ONE community measurement of
-    one device inside a camera. No own-device static log was recorded.
-  - Bench noise, not installed noise. A gyro on a trotting quadruped sees
-    vibration and impact transients no Allan curve captures.
-  - The simulator was chosen for differentiability, a capability the project
-    ultimately could not use.
--->
 
----
+
+Worth outlining some of the key limitations with this experiment:
+
+- Severity definition: worst-case value found by the search in the box cost 17% of the return, so more a degradation vs a collapse
+- Sampled command space: four pinned regimes (forward, sampled, yaw, standing) - no crouching, backing up, or transients
+- Return is a composite: worth stating again that the sweep out measures policy x reward function
+- There is more to model than just a policy and the components that feed into it
+- Simulation only: no hardware validation of policy nor modeled sensor (besides the community char)
+- Differentiability not usable: the main motivation for the project turned out to not be usual
+
+
+
+
+## 9. What I learned (as a newcomer)
+
+- Think about the problem you're trying to solve (from a policy/robot perspective) before proposing a differentiable sensor - for next time :)
+- Fold in related-system errors into the sensor model (this was something I dealt with a lot for magnetic sensing: many of the error sources are not component related but arise from the entire magnet-sensor system, things like air-gap variation, magnet permeability variation, etc.)
+- The reward function is a key part of the instrument 
+
+
 
 ## Appendix: prediction record
-<!-- WRITE: Two or three sentences, no self-flagellation. List what you
-predicted and what happened. The point is the asymmetry: three directional
-calls from sensor-physics intuition were wrong, and the one correct prediction
-came from a mechanism inferred from the measurements. That is the argument for
-measuring sensitivity before building a search, and it is stronger as evidence
-than as an apology. -->
-<!-- Include this. It reads as rigor when framed as a finding.
-  Pre-registered OFAT predictions: 2 of 5.
-    right: gyro white no failure; latency most sensitive
-    wrong: gyro bias "marginal, decides it" (no knee at all)
-           gyro scale "possible" (50 % error costs 3 %)
-           gravity tilt "no failure" (one of only two that do)
-  Plus three consecutive wrong directional calls:
-    persistent bias would decide it; gravity tilt would not fail;
-    rough terrain would shrink the gyro margins.
-  The ONE correct prediction -- gravity ablation would hurt more on rough
-  terrain -- came from a mechanism inferred from the measurements, not from
-  sensor-physics intuition.
-  That asymmetry IS the argument for measuring sensitivity before building
-  a search.
 
-  CLOSE ON THE TRAJECTORY. The project set out gradient-search-first and
-  became sensitivity-first, and every substantive result came after that
-  inversion. The sweep that redirected it needs no differentiable simulator,
-  no search machinery, no clustering and no GPU-scale infrastructure -- just
-  a trained policy and the discipline to ask whether the thing you plan to
-  search is something the system actually responds to. If one recommendation
-  survives this write-up, make it that one. -->
+I kept a prediction log in the lab notebook: the first five recorded as a block before the opening sweep, the rest written down as each experiment was set up. 4 out of 11 of the calls were right. What’s interesting isn’t the score, it’s which ones missed: every time I tried to guess an actual magnitude from sensor physics I got it wrong (bias would knee before white noise, 50% scale error would cost something, tilt wouldn’t matter, the standing effect would hold up under the control). The two calls that did survive weren’t really predictions so much as mechanisms I’d already read off a measurement in hand. 
+
+So I’d say that’s the real argument for doing it in this order. I started out wanting to build a gradient search and ended up doing a sensitivity sweep first, and that sweep is the easy part: no differentiable simulator, no search machinery, no GPU, just a trained policy and asking whether the thing you’re about to search is something the system even responds to.
+
+
+| | Prediction | Outcome |
+|---|---|---|
+| A | Gyro white noise: no failure at datasheet-realistic magnitudes | **Right** — the knee sits at 348× the BMI270 spec |
+| B | Latency: the most sensitive channel | **Right** — but gravity tilt ties it at 4× |
+| C | Gyro bias: marginal, and it decides the result | Wrong — no knee at all |
+| D | Gyro scale error: failure possible | Wrong — 50 % costs 3 % of return |
+| E | Gravity tilt: no failure | Wrong — one of only two channels that fail |
+| F | Rough terrain shrinks the gyro margins | Wrong — they did not move |
+| G | Gravity ablation hurts more on rough terrain | **Right** |
+| H | No knee moves more than one grid point across command regimes, except gravity when standing | Wrong — bias moved ~1.4 |
+| I | Standing still separates white from bias, bias worse — averaging over an episode washes out white noise as 1/√N but leaves a constant offset untouched, and that should bite hardest where the true rate is zero | Wrong — and scored right until the control run; the separation was the `stand_still` reward term |
+| J | Most of the standing effect survives the control: bias knee 0.09–0.20 rad/s, gravity onset below 4.41° | Wrong — 0.418 rad/s and 5.07° |
+| K | White's ungated knee lands near the sampled value and the separation collapses | **Right** — 0.251 vs 0.274 rad/s |
+
+
+## References
+
+**Sensor and noise modelling**
+
+- Bosch Sensortec. *BMI270 — Smart IMU with advanced features.* Datasheet BST-BMI270-DS000, Rev 1.5, March 2023. <https://www.bosch-sensortec.com/products/motion-sensors/imus/bmi270/> — source for the gyro noise density and the scale-factor bound.
+- Luxonis. *BMI270 Allan variance characterisation inside an OAK device.* depthai-core issue #886. <https://github.com/luxonis/depthai-core/issues/886> — the single community measurement the random-walk nominals rest on.
+- P. Furgale, J. Rehder, R. Siegwart. *Unified temporal and spatial calibration for multi-sensor systems.* IROS, 2013. Conventions and parameter names follow the Kalibr IMU noise model: <https://github.com/ethz-asl/kalibr/wiki>
+- N. El-Sheimy, H. Hou, X. Niu. *Analysis and modeling of inertial sensors using Allan variance.* IEEE Transactions on Instrumentation and Measurement, 57(1), 2008 — the white-noise and random-walk slope identification used throughout section 3.
+- Analog Devices. *ADIS16448 — compact, precision ten degrees of freedom inertial sensor.* Datasheet — the reference part whose EuRoC tuning values appear in the self-consistency figure.
+
+**Data**
+
+- M. Burri et al. *The EuRoC micro aerial vehicle datasets.* International Journal of Robotics Research, 35(10), 2016. DOI 10.1177/0278364915620033. <https://projects.asl.ethz.ch/datasets/euroc-mav/> — proposed as a grounding dataset and rejected for Allan fitting; the `sensor.yaml` Kalibr values are estimator tuning, not a characterisation.
+
+**Simulation and policy**
+
+- K. Zakka et al. *MuJoCo Playground.* arXiv:2502.08844, 2025. <https://arxiv.org/abs/2502.08844> — the Go1 joystick task, its reward terms including `stand_still`, and the ±0.2 rad/s gyro domain randomisation default.
+- E. Todorov, T. Erez, Y. Tassa. *MuJoCo: a physics engine for model-based control.* IROS, 2012 — and MJX, its JAX implementation, which the IMU model is traced inside.
+- C. D. Freeman et al. *Brax — a differentiable physics engine for large scale rigid body simulation.* 2021 — the PPO implementation and network sizes used to train the frozen policies.
+- J. Schulman et al. *Proximal policy optimization algorithms.* arXiv:1707.06347, 2017.
+- Unitree Robotics. *Go1 quadruped.* The platform the task models.
+
+**Methods and prior work**
+
+- H. J. T. Suh, M. Simchowitz, K. Zhang, R. Tedrake. *Do differentiable simulators give better policy gradients?* ICML, 2022 — the prior result that motivated checking gradient quality through contact before trusting it, and the reason criteria C1–C4 were set in advance.
+- P.-T. de Boer, D. P. Kroese, S. Mannor, R. Y. Rubinstein. *A tutorial on the cross-entropy method.* Annals of Operations Research, 134(1), 2005 — the CEM arm in section 4.6.
+- J. Tan et al. *Sim-to-real: learning agile locomotion for quadruped robots.* Robotics: Science and Systems, 2018 — per-episode IMU bias randomisation does appear in the wider literature, so the "domain randomisation omits structured errors" claim in section 2 is true of this simulator's defaults, not of the field.
