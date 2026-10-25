@@ -147,11 +147,19 @@ def train(timesteps: int = 200_000_000, noise_level: float = 0.0,
 @app.function(**COMMON)
 def ofat(policy: str = "/runs/go1_clean.pkl", episodes: int = 64,
          horizon: int = 1000, points: int = 9,
-         env: str = "Go1JoystickFlatTerrain") -> int:
+         env: str = "Go1JoystickFlatTerrain",
+         factors: str = "", command: str = "", name: str = "") -> int:
+    """factors and command are comma-separated: the Modal CLI has no nargs."""
+    stem = name or policy.split("/")[-1].replace(".pkl", "")
+    extra = ""
+    if factors:
+        extra += " --factors " + " ".join(factors.split(","))
+    if command:
+        extra += " --command " + " ".join(command.split(","))
     return _run(
         f"python scripts/ofat_sensitivity.py --env {env} --policy {policy} "
-        f"--episodes {episodes} --horizon {horizon} --points {points} "
-        f"--out /runs/ofat_{policy.split('/')[-1].replace('.pkl','')}.npz"
+        f"--episodes {episodes} --horizon {horizon} --points {points}{extra} "
+        f"--out /runs/ofat_{stem}.npz"
     )
 
 

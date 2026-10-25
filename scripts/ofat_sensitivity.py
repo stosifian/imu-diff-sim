@@ -56,9 +56,22 @@ def build_rollout(env, inference_fn, cfg):
     horizon = cfg["horizon"]
     max_lat = cfg["max_latency"]
 
+    # Optional fixed joystick command. The env's own sample_command is a lazy
+    # random walk -- resample interval ~Exp(5 s), per-axis uniform +-[1.5,
+    # 0.8, 1.2] with per-axis zeroing -- so a default sweep already averages
+    # over ~4 command segments per episode. Pinning it isolates one motion
+    # regime instead, which is the only way to ask whether a knee depends on
+    # what the robot was asked to do. _get_obs and the reward both read
+    # info["command"] BEFORE the end-of-step resample, so overwriting it after
+    # each step keeps observation, reward and tracking metric consistent.
+    command = cfg.get("command")
+    pinned = None if command is None else jnp.asarray(command)
+
     def rollout(key, factor_id, magnitude):
         k_env, k_bias, k_noise, k_act = jax.random.split(key, 4)
         state = env.reset(k_env)
+        if pinned is not None:
+            state.info["command"] = pinned
 
         # Per-episode constants. Drawn once, held for the whole rollout --
         # that persistence is the entire point of the bias/scale factors.
@@ -120,6 +133,8 @@ def build_rollout(env, inference_fn, cfg):
                 inp["state"] = obs
             act, _ = inference_fn(inp, sub)
             state = env.step(state, act)
+            if pinned is not None:
+                state.info["command"] = pinned
 
             cmd = raw[45:48]
             linvel = raw[0:3]
@@ -159,6 +174,12 @@ def main() -> int:
     ap.add_argument("--points", type=int, default=9)
     ap.add_argument("--factors", nargs="+", default=list(FACTORS), choices=FACTORS)
     ap.add_argument("--out", type=Path, default=Path("runs/ofat.npz"))
+    ap.add_argument("--command", type=float, nargs=3, default=None,
+                    metavar=("VX", "VY", "WZ"),
+                    help="pin the joystick command to one motion regime "
+                         "instead of letting the env resample it. Changes the "
+                         "baseline, so curves are only comparable as a "
+                         "fraction of their own baseline.")
     ap.add_argument("--min-baseline-survival", type=float, default=0.8,
                     help="refuse to sweep if the unperturbed policy survives "
                          "less than this fraction of an episode")
@@ -232,8 +253,13 @@ def main() -> int:
         blob["params"], deterministic=True
     )
 
-    rollout = build_rollout(env, inference_fn,
-                            {"horizon": args.horizon, "max_latency": 8})
+    if args.command is not None:
+        print(f"command pinned to {tuple(args.command)} "
+              "(vx m/s, vy m/s, wz rad/s)")
+    rollout = build_rollout(
+        env, inference_fn,
+        {"horizon": args.horizon, "max_latency": 8, "command": args.command},
+    )
     batched = jax.jit(jax.vmap(rollout, in_axes=(0, None, None)))
 
     # BASELINE GATE. Every sweep is measured as a departure from the
@@ -311,6 +337,8 @@ def main() -> int:
         horizon=np.asarray(args.horizon),
         episodes=np.asarray(args.episodes),
         policy=np.asarray(str(args.policy)),
+        command=np.asarray([np.nan] * 3 if args.command is None
+                           else args.command),
         **{f"{f}__{k}": v for f, d in results.items() for k, v in d.items()},
     )
     print(f"\nsaved -> {args.out}")
