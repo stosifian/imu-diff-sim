@@ -42,6 +42,6 @@ reports/figures/*.gif
 # Review passes over the write-up. Working notes on a draft, not part of it.
 reports/writeup-review-*.md
 
-# Lab notebook and the running glossary. Working material, kept local.
+# Lab notebook, glossary and working docs. Kept local, not part of the result.
 notes/
-docs/glossary.md
+docs/
