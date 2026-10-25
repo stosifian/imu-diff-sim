@@ -10,8 +10,10 @@ data/*.npy
 data/*.parquet
 !data/README.md
 
-# Run outputs
-runs/
+# Run outputs. `runs/*`, not `runs/`: git does not descend into an ignored
+# DIRECTORY, so a negation for a file inside one never fires. The sweep
+# outputs below were silently uncommitted for weeks because of that.
+runs/*
 wandb/
 reports/figures/*.png
 !reports/figures/.gitkeep
@@ -20,5 +22,22 @@ reports/figures/*.png
 IMU_PROJECT_BRIEF.md
 
 # Result figures and the data behind them are tracked, unlike scratch plots.
+# Every figure the write-up embeds must be listed here or it renders as a
+# broken image on GitHub.
 !reports/figures/ofat-*.png
+!reports/figures/allan-*.png
+!reports/figures/ablation.png
+!reports/figures/error-budget.png
+!reports/figures/search-misalign.png
 !runs/ofat_*.npz
+!runs/search_misalign.npz
+
+# Rollout clips. The composed pair is what the write-up embeds; the two
+# per-terrain sources regenerate from scripts/render_rollout.py.
+reports/figures/*.mp4
+reports/figures/*.gif
+!reports/figures/go1-rollout.mp4
+!reports/figures/go1-rollout.gif
+
+# Review passes over the write-up. Working notes on a draft, not part of it.
+reports/writeup-review-*.md

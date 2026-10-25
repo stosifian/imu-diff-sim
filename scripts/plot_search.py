@@ -48,7 +48,7 @@ def main() -> int:
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(12.4, 5.4),
                                    constrained_layout=True)
     fig.patch.set_facecolor(SURFACE)
-    fig.get_layout_engine().set(rect=(0, 0, 1, 0.90))
+    fig.get_layout_engine().set(rect=(0, 0, 1, 0.875))
 
     # Left: total rotation magnitude vs return. The 3-D box projected onto the
     # quantity that physically matters -- total angular error -- rather than
@@ -63,13 +63,18 @@ def main() -> int:
     axL.text(0.015, thresh, f" failure threshold ({int(float(d['fail_fraction'])*100)}% of baseline)",
              transform=axL.get_yaxis_transform(), color=INK_MUTED, fontsize=7.5,
              va="bottom")
-    axL.axvline(4.54, color=INK_MUTED, ls=":", lw=1.1, zorder=2)
-    axL.text(4.54, 0.02, " OFAT degradation onset", rotation=90, fontsize=7.5,
-             color=INK_MUTED, transform=axL.get_xaxis_transform(), va="bottom")
+    # 4.41 deg: the 5 % return-loss onset under the sampled command, from
+    # scripts/knees.py. Was 4.54, read off the sweep grid before the
+    # thresholds were unified.
+    axL.axvline(4.41, color=INK_MUTED, ls=":", lw=1.1, zorder=2)
+    axL.text(4.41, 0.02, " OFAT 5 % onset, gravity tilt", rotation=90,
+             fontsize=7.5, color=INK_MUTED,
+             transform=axL.get_xaxis_transform(), va="bottom")
     axL.set_xlabel("total mounting misalignment [deg]", color=INK_2, fontsize=9)
     axL.set_ylabel("return", color=INK_2, fontsize=9)
-    axL.set_title("Where each arm spent its budget", color=INK, fontsize=10.5,
-                  fontweight="bold", loc="left", pad=6)
+    axL.set_title("Return against total misalignment magnitude",
+                  color=INK, fontsize=10.5, fontweight="bold", loc="left",
+                  pad=6)
     axL.legend(frameon=False, fontsize=8.5, labelcolor=INK_2, loc="lower left")
 
     # Right: cumulative failures against evaluations.
@@ -85,20 +90,18 @@ def main() -> int:
     axR.set_xlabel("parameter evaluations (equal budget per arm)",
                    color=INK_2, fontsize=9)
     axR.set_ylabel("failures found (cumulative)", color=INK_2, fontsize=9)
-    axR.set_title("Discovery rate", color=INK, fontsize=10.5,
-                  fontweight="bold", loc="left", pad=6)
+    axR.set_title("Cumulative failures against evaluations",
+                  color=INK, fontsize=10.5, fontweight="bold", loc="left",
+                  pad=6)
     axR.set_xlim(0, len(d["cem__returns"]) * 1.22)
     axR.legend(frameon=False, fontsize=8.5, labelcolor=INK_2, loc="upper left")
 
     fig.text(0.008, 0.985,
-             "Adaptive search finds many more failures -- but not worse ones",
-             color=INK, fontsize=12.5, fontweight="bold", va="top")
-    worst = {k: float(np.min(d[f"{k}__returns"])) for k, _, _ in ARMS}
-    fig.text(0.008, 0.945,
-             f"box +-{bound_deg:.0f} deg/axis  |  baseline {base:.2f}  |  "
-             f"worst found: uniform {worst['uniform']:.2f}, CEM {worst['cem']:.2f}"
-             f"  |  CEM collapsed to a single mode (sigma 0.07 deg)",
-             color=INK_2, fontsize=8.5, va="top")
+             f"Uniform and CEM search over a \u00b1{bound_deg:.0f}\u00b0 "
+             "per-axis IMU misalignment box,\nequal budget per arm, "
+             f"unperturbed return {base:.2f}",
+             color=INK, fontsize=12, fontweight="bold", va="top",
+             linespacing=1.4)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.out, dpi=170, facecolor=SURFACE)
     print(f"wrote {args.out}")

@@ -1,7 +1,7 @@
 """Two figures the write-up needs and the sweep plots do not cover.
 
-1. Ablation: removing a channel versus corrupting it, flat against rough.
-   The most quotable result in the project had no figure.
+1. Ablation: pinning a channel to a constant versus corrupting it, flat
+   against rough. The most quotable result in the project had no figure.
 2. The in-field tilt error budget against the measured degradation onset.
    The section a sensor-physics background produces had no figure either.
 
@@ -17,12 +17,15 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+
+from plot_ofat import wilson  # noqa: E402
 
 BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
 SURFACE, INK, INK_2, INK_MUTED, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#8a8984", "#e4e3df"
@@ -39,71 +42,117 @@ def _style(ax):
 
 
 def ablation(flat: Path, rough: Path, out: Path) -> None:
-    """Return retained after fully removing each channel, both terrains."""
-    df, dr = np.load(flat, allow_pickle=True), np.load(rough, allow_pickle=True)
+    """Fall rate with each channel pinned to a constant, both terrains.
+
+    Not deletion: the policy net has a fixed 48-input layer, so the slots stay
+    and are overwritten -- gyro obs[3:6] to (0, 0, 0), gravity obs[6:9] to
+    (0, 0, -1). Both are legal in-distribution values, so what is measured is
+    loss of information rather than an out-of-range input. The title says
+    "held at a constant" and not "removed" for exactly that reason: the 3 %
+    flat-gravity fall rate is low because the substituted upright prior is
+    CORRECT on flat ground, which is unreadable if the reader thinks the
+    input is gone.
+
+    Fall rate carries the bar and return retained drops to the label, the
+    reverse of the first version. Falling over is the failure a reader
+    already has intuition for, and it needs no normalisation to be compared
+    across terrains -- where return does, since the two policies earn
+    different baselines.
+
+    The two terrains have DIFFERENT unperturbed fall rates (0.00 flat, 0.17
+    rough), so both references are drawn. Without them the rough bars read as
+    ablation damage when 17 points of it is the ground.
+    """
+    df = np.load(flat, allow_pickle=True)
+    dr = np.load(rough, allow_pickle=True)
     keys = ["ablate_gyro", "ablate_gravity", "ablate_both"]
-    labels = ["gyro\nremoved", "gravity\nremoved", "both\nremoved"]
+    labels = ["gyro\nheld at zero", "gravity\nheld upright",
+              "both\nheld constant"]
+
+    # Last sweep point is the full blend (weight 1.0).
+    def fell(d, k):
+        return float(d[f"{k}__fell"][-1])
 
     def frac(d, k):
-        # Last sweep point is full removal (blend weight 1.0).
         return float(d[f"{k}__return"][-1]) / float(d["baseline__return"])
 
-    vals = {"flat terrain": [frac(df, k) for k in keys],
-            "rough terrain": [frac(dr, k) for k in keys]}
-    falls = {"flat terrain": [float(df[f"{k}__fell"][-1]) for k in keys],
-             "rough terrain": [float(dr[f"{k}__fell"][-1]) for k in keys]}
-
+    series = (("flat terrain", BLUE, df), ("rough terrain", ORANGE, dr))
     x = np.arange(3)
     w = 0.36
-    fig, ax = plt.subplots(figsize=(8.2, 5.0), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(8.8, 5.4), constrained_layout=True)
     fig.patch.set_facecolor(SURFACE)
-    fig.get_layout_engine().set(rect=(0, 0, 1, 0.88))
+    fig.get_layout_engine().set(rect=(0, 0, 1, 0.845))
     _style(ax)
 
-    for i, (name, color) in enumerate((("flat terrain", BLUE),
-                                       ("rough terrain", ORANGE))):
+    for i, (name, color, d) in enumerate(series):
+        n = int(d["episodes"])
+        falls = [fell(d, k) for k in keys]
+        rets = [frac(d, k) for k in keys]
+        lo, hi = wilson(np.array(falls), n)
         # 2 px surface gap between adjacent bars, per the mark spec.
-        bars = ax.bar(x + (i - 0.5) * (w + 0.02), vals[name], w, color=color,
+        bars = ax.bar(x + (i - 0.5) * (w + 0.02), falls, w, color=color,
                       zorder=3, label=name, edgecolor=SURFACE, linewidth=2)
-        for b, v, f in zip(bars, vals[name], falls[name]):
-            # Label inside the bar when it is tall enough to hold the text,
-            # otherwise above it -- avoids colliding with the 100% reference.
-            inside = v > 0.28
+        ax.errorbar(x + (i - 0.5) * (w + 0.02), falls,
+                    yerr=[np.array(falls) - lo, hi - np.array(falls)],
+                    fmt="none", ecolor=INK_2, elinewidth=1.1, capsize=4,
+                    capthick=1.1, zorder=6)
+        for b, f, r, h in zip(bars, falls, rets, hi):
+            # Inside labels sit at the BASE of the bar, not under its top:
+            # the Wilson whisker spans [lo, hi] around the top and would run
+            # straight through a top-anchored label. A short bar has no room,
+            # so its label goes above the whisker instead.
+            inside = f > 0.30
             ax.text(b.get_x() + b.get_width() / 2,
-                    v - 0.03 if inside else v + 0.022,
-                    f"{v:.0%}\n{f:.0%} falls", ha="center",
-                    va="top" if inside else "bottom",
+                    0.025 if inside else h + 0.025,
+                    f"{f:.0%} falls\n{r:.0%} return",
+                    ha="center", va="bottom",
                     color=SURFACE if inside else INK_2,
-                    fontsize=8.5, linespacing=1.3, zorder=5)
+                    fontsize=8.5, linespacing=1.3, zorder=7,
+                    # The short bar's label sits near the rough reference
+                    # line; an opaque patch stops the dashes crossing it.
+                    bbox=None if inside else dict(facecolor=SURFACE,
+                                                  edgecolor="none", pad=1.5))
 
-    ax.axhline(1.0, color=INK_MUTED, ls=(0, (4, 3)), lw=1.1, zorder=2)
-    ax.text(-0.56, 1.0, "unperturbed ", color=INK_MUTED, fontsize=8.5,
-            va="bottom", ha="left")
+    # Unperturbed fall rate, one per terrain -- they are not the same.
+    for name, color, d in series:
+        base = float(d["baseline__fell"])
+        ax.axhline(base, color=color, ls=(0, (4, 3)), lw=1.2, zorder=2)
+        ax.text(2.70, base, f"{name},\nunperturbed {base:.0%}", color=color,
+                fontsize=8, va="center", ha="left", linespacing=1.4)
+
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, color=INK_2, fontsize=9.5)
-    ax.set_ylabel("return retained", color=INK_2, fontsize=9.5)
+    for t in ax.set_xticklabels(labels, color=INK_2, fontsize=9.5,
+                                linespacing=1.4):
+        # Descenders differ per label ("gyro" against "both"), so bounding-box
+        # alignment staggers the rows visibly. Anchor on the top instead.
+        t.set_verticalalignment("top")
+    ax.set_ylabel("fall rate  (error bars: Wilson 95 %)", color=INK_2,
+                  fontsize=9.5)
     ax.set_ylim(0, 1.12)
     ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
     ax.set_yticklabels(["0", "25%", "50%", "75%", "100%"])
-    ax.set_xlim(-0.6, 2.6)
+    ax.set_xlim(-0.6, 3.38)
     ax.legend(frameon=False, fontsize=9, labelcolor=INK_2,
-              loc="upper right", ncols=2)
+              loc="upper left", ncols=2)
 
     fig.text(0.008, 0.985,
-             "Removing a channel is not the same as corrupting it",
-             color=INK, fontsize=12.5, fontweight="bold", va="top")
-    fig.text(0.008, 0.935,
-             "The gyro is immune to 635x its datasheet noise, yet essential. "
-             "Gravity is the reverse: nearly free to lose on flat\nground, "
-             "ruinous on rough -- because the upright prior it falls back on "
-             "is only correct when the ground is flat.",
-             color=INK_2, fontsize=8.5, va="top", linespacing=1.5)
+             "Fall rate and return retained with an IMU observation channel\n"
+             "held at a constant (gyro at zero, gravity at nominal upright),\n"
+             "flat against rough terrain, 64 episodes",
+             color=INK, fontsize=12, fontweight="bold", va="top",
+             linespacing=1.4)
     fig.savefig(out, dpi=170, facecolor=SURFACE)
     print(f"  {out}")
 
 
 def error_budget(out: Path) -> None:
-    """In-field tilt contributions against the measured degradation onset."""
+    """In-field tilt contributions against the measured degradation onset.
+
+    The onset is command-conditional (section 4.2), so the figure carries the
+    range across motion regimes rather than the single in-motion number an
+    earlier version drew. Thresholds are the project-wide 5 % / 10 % return
+    loss from scripts/knees.py, not read off the sweep grid by eye.
+    """
     from imu_diff_sim.validation import bmi270_spec as S
 
     dT = 40.0
@@ -125,7 +174,7 @@ def error_budget(out: Path) -> None:
 
     fig, ax = plt.subplots(figsize=(9.6, 5.2), constrained_layout=True)
     fig.patch.set_facecolor(SURFACE)
-    fig.get_layout_engine().set(rect=(0, 0, 1, 0.86))
+    fig.get_layout_engine().set(rect=(0, 0, 1, 0.885))
     _style(ax)
     bars = ax.bar(range(len(heights)), heights, 0.62, color=colors, zorder=3,
                   edgecolor=SURFACE, linewidth=2)
@@ -133,26 +182,33 @@ def error_budget(out: Path) -> None:
         ax.text(b.get_x() + b.get_width() / 2, h + 0.12, f"{h:.2f}°",
                 ha="center", va="bottom", color=INK_2, fontsize=9)
 
-    ax.axhline(4.54, color=ORANGE, ls=(0, (5, 3)), lw=1.6, zorder=4)
-    ax.text(-0.42, 4.54, "measured degradation onset 4.54°  ", color=ORANGE,
-            fontsize=8.5, va="bottom", ha="left")
-    ax.axhline(11.28, color=INK_MUTED, ls=":", lw=1.3, zorder=4)
-    ax.text(-0.42, 11.28, "measured 10 % knee 11.28°  ", color=INK_MUTED,
-            fontsize=8.5, va="bottom", ha="left")
+    # The 5 % onset is not one number: it varies with what the robot was asked
+    # to do. Drawing the range rather than a single line is the honest form --
+    # the stack-up sits INSIDE it in every regime, which is the argument.
+    # Values from scripts/knees.py; see reports/figures/ofat-command-regimes.png.
+    onset_lo, onset_hi, knee = 4.10, 5.07, 5.14
+    ax.axhspan(onset_lo, onset_hi, color=ORANGE, alpha=0.12, zorder=1)
+    for y, lab in ((onset_hi, "5 % onset, standing still 5.07°  "),
+                   (onset_lo, "5 % onset, forward 1.5 m/s 4.10°  ")):
+        ax.axhline(y, color=ORANGE, ls=(0, (5, 3)), lw=1.6, zorder=4)
+        ax.text(-0.42, y, lab, color=ORANGE, fontsize=8.5, va="bottom",
+                ha="left")
+    ax.axhline(knee, color=INK_MUTED, ls=":", lw=1.3, zorder=4)
+    # Right-anchored: the knee is 0.07 deg above the standing onset, so a
+    # left-anchored label lands on top of that one.
+    ax.text(len(heights) - 0.55, knee,
+            f"  10 % knee, sampled command {knee:.2f}°",
+            color=INK_MUTED, fontsize=8.5, va="bottom", ha="right")
 
     ax.set_xticks(range(len(labels)))
     ax.set_xticklabels(labels, color=INK_2, fontsize=8.5, linespacing=1.4)
     ax.set_ylabel("attitude error [degrees]", color=INK_2, fontsize=9.5)
-    ax.set_ylim(0, 12.6)
+    ax.set_ylim(0, 6.4)
     fig.text(0.008, 0.985,
-             "A realistic field stack-up lands on the failure threshold",
-             color=INK, fontsize=12.5, fontweight="bold", va="top")
-    fig.text(0.008, 0.925,
-             "Gravity tilt is a DIRECTION error: the vector is renormalised, "
-             "so a common-mode scale error contributes nothing.\nThe terms "
-             "that do contribute are per-axis, persistent and slowly varying "
-             "-- and the largest is mechanical, not a datasheet line.",
-             color=INK_2, fontsize=8.5, va="top", linespacing=1.5)
+             "In-field attitude error terms and their stack-up, against\n"
+             "the measured 5 % onset and 10 % knee in gravity tilt",
+             color=INK, fontsize=12, fontweight="bold", va="top",
+             linespacing=1.4)
     fig.savefig(out, dpi=170, facecolor=SURFACE)
     print(f"  {out}")
 

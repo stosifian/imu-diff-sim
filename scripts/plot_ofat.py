@@ -108,7 +108,7 @@ def headline(d, out: Path, dr_persistent: float) -> None:
     """White noise vs persistent bias at equal magnitude. The decisive plot."""
     base = float(d["baseline__return"])
     fig, ax = plt.subplots(figsize=(7.8, 5.2), constrained_layout=True)
-    fig.get_layout_engine().set(rect=(0, 0, 1, 0.93))
+    fig.get_layout_engine().set(rect=(0, 0, 1, 0.90))
     fig.patch.set_facecolor(SURFACE)
     _style(ax)
 
@@ -136,16 +136,19 @@ def headline(d, out: Path, dr_persistent: float) -> None:
     ax.axhline(1.0, color=GRID, lw=1.0, zorder=1)
     ax.set_xscale("log")
     ax.set_xlabel("injected magnitude [rad/s]", color=INK_2, fontsize=9)
-    ax.set_ylabel("return, fraction of unperturbed", color=INK_2, fontsize=9)
-    # Subtitle as the axes title, headline above it via fig.text -- setting
-    # both on the axes collides them.
-    ax.set_title(
-        "Same units, same axis. White noise averages down over an episode;\n"
-        "a persistent bias does not -- so the two curves should differ.",
-        color=INK_2, fontsize=8.5, loc="left", pad=8)
+    ax.set_ylabel("return, fraction of unperturbed  (band: \u00b11 SEM)",
+                  color=INK_2, fontsize=9)
+    # One objective title line, stating what is plotted and under what
+    # conditions. No interpretive subtitle: the reading belongs in the
+    # write-up, where it can be argued, not asserted on the figure.
+    n_ep = int(d["episodes"]) if "episodes" in d else 64
+    horizon = int(d["horizon"]) if "horizon" in d else 1000
     fig.text(0.012, 0.975,
-             "Does the policy care about noise, or about bias?",
-             color=INK, fontsize=12.5, fontweight="bold", va="top")
+             "Return against injected gyro error magnitude: white noise\n"
+             "and persistent bias at equal units, "
+             f"{n_ep} episodes \u00d7 {horizon} steps",
+             color=INK, fontsize=12, fontweight="bold", va="top",
+             linespacing=1.4)
     ax.set_xlim(right=ax.get_xlim()[1] * 2.2)  # room for direct labels
     ax.legend(frameon=False, fontsize=8.5, loc="lower left",
               labelcolor=INK_2)
@@ -164,7 +167,7 @@ def grid_figure(d, out: Path) -> None:
                              constrained_layout=True)
     # Reserve space top and bottom: constrained_layout does not account for
     # a left-aligned suptitle, and the bottom xlabels were being clipped.
-    fig.get_layout_engine().set(rect=(0, 0.012, 1, 0.895), hspace=0.09)
+    fig.get_layout_engine().set(rect=(0, 0.012, 1, 0.945), hspace=0.09)
     fig.patch.set_facecolor(SURFACE)
 
     for j, factor in enumerate(factors):
@@ -187,7 +190,7 @@ def grid_figure(d, out: Path) -> None:
         ax.set_xlabel(f"magnitude [{FACTOR_UNIT[factor]}]",
                       color=INK_2, fontsize=8.5)
         if j == 0:
-            ax.set_ylabel("return\n(fraction of unperturbed)",
+            ax.set_ylabel("return\n(fraction of unperturbed)\nband: \u00b11 SEM",
                           color=INK_2, fontsize=9)
 
         ax2 = axes[1, j]
@@ -201,7 +204,7 @@ def grid_figure(d, out: Path) -> None:
         ax2.set_xlabel(f"magnitude [{FACTOR_UNIT[factor]}]",
                        color=INK_2, fontsize=8.5)
         if j == 0:
-            ax2.set_ylabel("fall rate", color=INK_2, fontsize=9)
+            ax2.set_ylabel("fall rate\nband: Wilson 95%", color=INK_2, fontsize=9)
 
         for a in (ax, ax2):
             if logx:
@@ -210,16 +213,12 @@ def grid_figure(d, out: Path) -> None:
                 _vref(a, BMI270_WHITE if factor == "gyro_white" else BMI270_BIAS,
                       "BMI270")
 
-    fig.text(0.008, 0.990,
-             "IMU error sensitivity of a Go1 joystick policy",
-             color=INK, fontsize=12.5, fontweight="bold", va="top")
-    fig.text(0.008, 0.948,
-             f"{int(d['episodes'])} episodes x {int(d['horizon'])} steps  |  "
-             f"baseline return {base:.1f}, fall rate "
-             f"{float(d['baseline__fell']):.2f}, survival "
-             f"{float(d['baseline__survived']):.2f}"
-             f"   |   bands: +-1 SEM (return), Wilson 95% (fall rate)",
-             color=INK_2, fontsize=9, va="top")
+    fig.text(0.008, 0.985,
+             "Return and fall rate against injected IMU error magnitude, one "
+             f"factor at a time: {int(d['episodes'])} episodes \u00d7 "
+             f"{int(d['horizon'])} steps, unperturbed return {base:.1f}, "
+             f"unperturbed fall rate {float(d['baseline__fell']):.2f}",
+             color=INK, fontsize=11.5, fontweight="bold", va="top")
     fig.savefig(out, dpi=170, facecolor=SURFACE)
     print(f"  {out}")
 
