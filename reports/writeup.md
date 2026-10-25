@@ -218,7 +218,7 @@ With IMUs, you traditionally pay the penalty via integration. The averaging time
 
 The other idea is simpler and doesn’t involve integration at all. A constant offset is one wrong number, and everything else the policy reads (joint angles, the gravity vector, the velocity estimate) stays consistent around it, so there’s plenty left to lean on. White noise hands it a different wrong number every step, and there’s nothing to lean on. That gets you white-before-bias too, with no accumulation anywhere in the argument. A caveat is that the velocity estimate is ground truth in the simulation, but on real hardware that would come from a state estimator that integrates the IMU, so by nothing integrating here, I mean from the policy.
 
-The measurement that would separate them is a bias that ramps rather than one that sits still (like a temperature drift). Sweep the ramp rate and find where the policy starts to care. If accumulation is what matters, a ramp should hurt where a constant does not, and the rate at which it bites should scale with the episode. If redundancy is what matters, the ramp rate should barely register. I haven’t run it — which makes this the explanation I believe, not the one I’ve tested.
+The measurement that would separate them is a bias that ramps rather than one that sits still (like a temperature drift). Sweep the ramp rate and find where the policy starts to care. If accumulation is what matters, a ramp should hurt where a constant does not, and the rate at which it bites should scale with the episode. If redundancy is what matters, the ramp rate should barely register. 
 
 Also worth briefly stating that there is no sensor fusion going on here, so that wouldn't explain the insensitivity. There's no filter, no history, and gravity is ground truth in the sim.
 
@@ -226,7 +226,7 @@ Also worth briefly stating that there is no sensor fusion going on here, so that
 ## 6. The error budget that actually binds
 
 
-With all this exploration, it'd be at least worth laying out an error budget (every sensing engineer's occasional best friend). First note is that gravity tilt here is a direction error, not a magnitude one. The accelerometer vector gets normalized before reaching the policy so any uniform scale error applied to all three axes will result in zero tilt. What escapes the normalization is any error term that makes the axes disagree with each other. Given the presence of gravity, that means any additive term on all three axes (let's call it δ ) would result in a tilt after normalization. This can be from a variety of reasons: temperature (.25 mg/K offset drift), cross-axis sensitivty (1%), accelerometer zero-g offset, and other sources not quoted in the datasheet: package and board stress, mechanical shock, aging/lifetime drift. 
+With all this exploration, it'd be at least worth laying out an error budget (every sensing engineer's occasional best friend). First note is that gravity tilt here is a direction error, not a magnitude one. The accelerometer vector gets normalized before reaching the policy so any uniform scale error applied to all three axes will result in zero tilt. What escapes the normalization is any error term that makes the axes disagree with each other. Given the presence of gravity, that means any additive term on all three axes (let's call it δ ) would result in a tilt after normalization. This can be from a variety of reasons: temperature (.25 mg/K offset drift), cross-axis sensitivity (1%), accelerometer zero-g offset, and other sources not quoted in the datasheet: package and board stress, mechanical shock, aging/lifetime drift. 
 
 The chart below is a stack up, left-to-right the four datasheet contributors (all under 1.2˚). Since they're independent, they combine in the RSS to 1.41˚. Then I assumed a 3˚ mechanical mounting tolerance (not measured but assumed based on literature/references I've seen), adding directly gives 4.41˚ since mounting is systematic. With misalignment mounting considered, that does put the budget in the negative for the walking forward case, getting us past first detectable degradation in the fastest case - no physics-modeling needed, just some system level considerations. 
 
@@ -246,7 +246,7 @@ Given all the negative discoveries here, there's a *lot* I could do for follow u
 
 Another would be explicitly including misalignment as a sim-to-real study, though grounding the data in actual mounting-error distributions from hardware (not something I have access to currently).
 
-Additionally, given that integration of the IMU outputs is what's been hypothesized as a miss for this approach, one other method to try is using a policy with a memory-mechanism (like recurrence)
+Additionally, given that integration of the IMU outputs is what's been hypothesized as a miss for this approach, one other method to try is using a policy with a memory-mechanism (like recurrence).
 
 ## 8. Limitations
 
@@ -267,7 +267,7 @@ Worth outlining some of the key limitations with this experiment:
 
 - Think about the problem you're trying to solve (from a policy/robot perspective) before proposing a differentiable sensor - for next time :)
 - Fold in related-system errors into the sensor model (this was something I dealt with a lot for magnetic sensing: many of the error sources are not component related but arise from the entire magnet-sensor system, things like air-gap variation, magnet permeability variation, etc.)
-- The reward function is a key part of the instrument 
+- The reward function is a key part of the policy analysis, not to be ignored 
 
 
 
