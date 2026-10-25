@@ -97,7 +97,7 @@ def test_every_parameter_has_provenance():
 
     No code reads BMI270_PROVENANCE -- it exists for the write-up, which means
     nothing else would ever catch it going stale. This test is the only thing
-    standing between you and a week-4 sentence you cannot source. If you add a
+    standing between you and a write-up sentence you cannot source. If you add a
     parameter, you document where its value came from.
     """
     from imu_diff_sim.params import BMI270_PROVENANCE
@@ -127,7 +127,7 @@ def test_every_parameter_has_provenance():
 
 
 def test_transforms_work_under_jit():
-    """Both transforms must survive jit -- the week-3 search jits everything.
+    """Both transforms must survive jit -- the search arm jits everything.
 
     Regression test for a real bug: _log_bounds used float(jnp.log(...)), and
     inside a jit trace jnp operations are staged out, so float() raised

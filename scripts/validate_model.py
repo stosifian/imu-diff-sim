@@ -6,7 +6,7 @@ Does: generates a long trace from known parameters, runs the Allan estimator
 on it, and recovers those parameters. That verifies the discrete-time scaling
 in noise.py (the two sqrt(dt) factors), the estimator in allan.py, and that the
 unit conventions agree end to end. It is the check that catches the bugs which
-otherwise survive into week 3.
+otherwise survive into the search arm.
 
 Does NOT: validate the model against reality. Parameters go in, the same
 parameters come out -- a correct implementation of a simplified model. The

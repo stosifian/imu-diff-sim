@@ -254,7 +254,7 @@ def _log_bounds(name: str) -> tuple[float, float]:
     constants built from Python floats. Inside a jit trace every jnp operation
     is staged out, so jnp.log would return a tracer and float() on it raises
     ConcretizationTypeError -- which breaks every jitted call site, including
-    the entire week-3 search. Keep arithmetic on static configuration in plain
+    the entire search arm. Keep arithmetic on static configuration in plain
     Python.
     """
     lo, hi = SEARCH_BOX_FACTORS[name]

@@ -8,7 +8,7 @@ each knee against what a real BMI270 produces.
 
 If no channel's knee is within reach of the real device, the premise is false
 for this task and policy -- and that is worth learning in an afternoon rather
-than in week three. If some channel IS reachable, the sweep says which one,
+than in the search arm. If some channel IS reachable, the sweep says which one,
 and the sensor model gets built where it matters.
 
 The built-in observation DR is DISABLED (noise_config.level = 0). Measuring an

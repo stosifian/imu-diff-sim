@@ -3,7 +3,7 @@
 # Claude to keep it current.
 #
 # The notes methodology (notes/README.md) only pays off if entries get written
-# on the day, not reconstructed in week 4. Scaffolding the file is deterministic
+# on the day, not reconstructed at write-up time. Scaffolding it is deterministic
 # work a hook can do; filling it in is not, so this also injects a reminder
 # into the session context.
 #
@@ -39,7 +39,7 @@ read -r -d '' ctx <<CTX || true
 Lab notebook: today's entry is notes/$today.md. $state
 
 Keep it current as the session goes, without being asked. Append to it when
-something happens that week 4 would otherwise have to reconstruct from memory:
+something happens that the write-up would otherwise have to reconstruct:
 
   - Found   : a measurement, a verification result, something that turned out
               untrue. Numbers, not adjectives.

@@ -50,7 +50,7 @@ There are two things this file has to get right, and they are independent.
     sampling operation itself is not differentiable w.r.t. its parameters.
 
     Holding eps fixed across different parameter values also gives us common
-    random numbers in week 3, which cuts the variance of the DR-vs-gradient
+    random numbers in the search, which cuts the variance of the DR-vs-gradient
     comparison for free.
 
     Consequence: NO jax.random calls below this line. If you find yourself

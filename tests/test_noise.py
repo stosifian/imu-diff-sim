@@ -90,7 +90,7 @@ def test_white_noise_sample_std_scales_as_inverse_sqrt_dt(dt):
     per-sample std by 2x.
 
     If your implementation has this inverted, this test fails in the obvious
-    direction and you have found the bug in ten seconds rather than in week 3.
+    direction and you have found the bug in ten seconds rather than mid-search.
     """
     nd = 1e-3
     p = _params(gyroscope_noise_density=nd, gyroscope_random_walk=0.0,

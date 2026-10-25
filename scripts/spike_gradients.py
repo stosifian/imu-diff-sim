@@ -1,6 +1,6 @@
-"""Week-1 gradient spike: are AD gradients through the sim usable at all?
+"""Gradient spike: are AD gradients through the sim usable at all?
 
-THE QUESTION. Weeks 2 and 3 assume d(task_loss)/d(IMU_params) computed by
+THE QUESTION. The search arms assume d(task_loss)/d(IMU_params) computed by
 jax.grad through a contact-rich rollout is informative enough to optimize
 against. That assumption is not safe. Reverse-mode AD through contact is known
 to give high-variance or effectively meaningless gradients (Suh et al., ICML
@@ -20,16 +20,16 @@ PASS/FAIL CRITERION, FIXED BEFORE THE FIRST RUN. For each (backend, horizon):
                    growth is the signature of a chaotic unroll.
 
 A backend/horizon passing all four is usable. The LONGEST horizon that passes
-is what week 2 should adopt. If nothing passes, that is a real result: report
+is what the search should adopt. If nothing passes, that is a real result: report
 the horizon at which analytic gradients stop being informative and run the
-week-3 comparison there.
+three-arm comparison there.
 
 CAVEAT, STATED UP FRONT. The policy here is a small randomly-initialized MLP,
 not a trained locomotion policy. A trained policy produces sustained, regular
 contact; a random one produces a different contact pattern, so these numbers
 are indicative rather than final. The spike exists to choose a simulator and a
 horizon, not to produce a publishable number. Re-run C1-C4 against the real
-policy in week 2 -- that is the actual exit criterion.
+policy at all -- that is the actual exit criterion.
 """
 
 from __future__ import annotations
@@ -130,7 +130,7 @@ def analyse(name, loss_fn, u0, horizon, n_draws, fd_step):
     grad_j = jax.jit(jax.grad(loss_fn))
 
     # How much does the loss actually move across the search box? If it barely
-    # moves, there is nothing for ANY search method to find and the week-3
+    # moves, there is nothing for ANY search method to find and the three-arm
     # comparison is vacuous -- a far more important thing to learn now than
     # whether the gradient is well conditioned. u = +-3 is effectively the box
     # edge, since tanh(3) = 0.995.

@@ -1,6 +1,6 @@
 """Can jax.grad flow through an MJX Go1 rollout at all?
 
-The week-1 spike validated gradients on Brax positional, not MJX, and the
+The first spike validated gradients on Brax positional, not MJX, and the
 Modal container runs MuJoCo's Warp backend rather than classic MJX. Whether
 reverse-mode AD works through that path is unverified, and the entire
 gradient arm of the three-arm comparison depends on it.
